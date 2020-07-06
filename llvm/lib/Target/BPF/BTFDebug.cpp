@@ -388,7 +388,7 @@ uint32_t BTFStringTable::addString(StringRef S) {
 BTFDebug::BTFDebug(AsmPrinter *AP)
     : DebugHandlerBase(AP), OS(*Asm->OutStreamer), SkipInstruction(false),
       LineInfoGenerated(false), SecNameOff(0), ArrayIndexTypeId(0),
-      MapDefNotCollected(true) {
+      MapDefNotCollected(true), ByteTypeId(0) {
   addString("\0");
 }
 
@@ -408,31 +408,45 @@ uint32_t BTFDebug::addType(std::unique_ptr<BTFTypeBase> TypeEntry) {
   return Id;
 }
 
-void BTFDebug::visitBasicType(const DIBasicType *BTy, uint32_t &TypeId) {
+uint32_t BTFDebug::addUnknownType(const DIType *Ty) {
+  uint64_t SizeInBits = Ty->getSizeInBits();
+  assert(SizeInBits % 8 == 0);
+  if (ByteTypeId == 0) {
+    auto ByteTypeEntry = std::make_unique<BTFTypeInt>(
+        dwarf::DW_ATE_unsigned_char, 8, 0, "__BYTE_TYPE__");
+    ByteTypeId = addType(std::move(ByteTypeEntry));
+  }
+  auto TypeEntry = std::make_unique<BTFTypeArray>(ByteTypeId, SizeInBits / 8);
+  generateArrayIndexTypeId();
+  return addType(std::move(TypeEntry), Ty);
+}
+
+bool BTFDebug::visitBasicType(const DIBasicType *BTy, uint32_t &TypeId) {
   // Only int types are supported in BTF.
   uint32_t Encoding = BTy->getEncoding();
   if (Encoding != dwarf::DW_ATE_boolean && Encoding != dwarf::DW_ATE_signed &&
       Encoding != dwarf::DW_ATE_signed_char &&
       Encoding != dwarf::DW_ATE_unsigned &&
       Encoding != dwarf::DW_ATE_unsigned_char)
-    return;
+    return false;
 
   // Create a BTF type instance for this DIBasicType and put it into
   // DIToIdMap for cross-type reference check.
   auto TypeEntry = std::make_unique<BTFTypeInt>(
       Encoding, BTy->getSizeInBits(), BTy->getOffsetInBits(), BTy->getName());
   TypeId = addType(std::move(TypeEntry), BTy);
+  return true;
 }
 
 /// Handle subprogram or subroutine types.
-void BTFDebug::visitSubroutineType(
+bool BTFDebug::visitSubroutineType(
     const DISubroutineType *STy, bool ForSubprog,
     const std::unordered_map<uint32_t, StringRef> &FuncArgNames,
     uint32_t &TypeId) {
   DITypeRefArray Elements = STy->getTypeArray();
   uint32_t VLen = Elements.size() - 1;
   if (VLen > BTF::MAX_VLEN)
-    return;
+    return false;
 
   // Subprogram has a valid non-zero-length name, and the pointee of
   // a function pointer has an empty name. The subprogram type will
@@ -448,15 +462,16 @@ void BTFDebug::visitSubroutineType(
   for (const auto Element : Elements) {
     visitTypeEntry(Element);
   }
+  return true;
 }
 
 /// Handle structure/union types.
-void BTFDebug::visitStructType(const DICompositeType *CTy, bool IsStruct,
+bool BTFDebug::visitStructType(const DICompositeType *CTy, bool IsStruct,
                                uint32_t &TypeId) {
   const DINodeArray Elements = CTy->getElements();
   uint32_t VLen = Elements.size();
   if (VLen > BTF::MAX_VLEN)
-    return;
+    return false;
 
   // Check whether we have any bitfield members or not
   bool HasBitField = false;
@@ -476,9 +491,10 @@ void BTFDebug::visitStructType(const DICompositeType *CTy, bool IsStruct,
   // Visit all struct members.
   for (const auto *Element : Elements)
     visitTypeEntry(cast<DIDerivedType>(Element));
+  return true;
 }
 
-void BTFDebug::visitArrayType(const DICompositeType *CTy, uint32_t &TypeId) {
+bool BTFDebug::visitArrayType(const DICompositeType *CTy, uint32_t &TypeId) {
   // Visit array element type.
   uint32_t ElemTypeId;
   const DIType *ElemType = CTy->getBaseType();
@@ -510,49 +526,58 @@ void BTFDebug::visitArrayType(const DICompositeType *CTy, uint32_t &TypeId) {
 
   // The IR does not have a type for array index while BTF wants one.
   // So create an array index type if there is none.
-  if (!ArrayIndexTypeId) {
-    auto TypeEntry = std::make_unique<BTFTypeInt>(dwarf::DW_ATE_unsigned, 32,
-                                                   0, "__ARRAY_SIZE_TYPE__");
-    ArrayIndexTypeId = addType(std::move(TypeEntry));
-  }
+  generateArrayIndexTypeId();
+
+  return true;
 }
 
-void BTFDebug::visitEnumType(const DICompositeType *CTy, uint32_t &TypeId) {
+void BTFDebug::generateArrayIndexTypeId() {
+  if (ArrayIndexTypeId)
+    return;
+  auto TypeEntry = std::make_unique<BTFTypeInt>(dwarf::DW_ATE_unsigned, 32, 0,
+                                                "__ARRAY_SIZE_TYPE__");
+  ArrayIndexTypeId = addType(std::move(TypeEntry));
+}
+
+bool BTFDebug::visitEnumType(const DICompositeType *CTy, uint32_t &TypeId) {
   DINodeArray Elements = CTy->getElements();
   uint32_t VLen = Elements.size();
   if (VLen > BTF::MAX_VLEN)
-    return;
+    return false;
 
   auto TypeEntry = std::make_unique<BTFTypeEnum>(CTy, VLen);
   TypeId = addType(std::move(TypeEntry), CTy);
   // No need to visit base type as BTF does not encode it.
+  return true;
 }
 
 /// Handle structure/union forward declarations.
-void BTFDebug::visitFwdDeclType(const DICompositeType *CTy, bool IsUnion,
+bool BTFDebug::visitFwdDeclType(const DICompositeType *CTy, bool IsUnion,
                                 uint32_t &TypeId) {
   auto TypeEntry = std::make_unique<BTFTypeFwd>(CTy->getName(), IsUnion);
   TypeId = addType(std::move(TypeEntry), CTy);
+  return true;
 }
 
 /// Handle structure, union, array and enumeration types.
-void BTFDebug::visitCompositeType(const DICompositeType *CTy,
+bool BTFDebug::visitCompositeType(const DICompositeType *CTy,
                                   uint32_t &TypeId) {
   auto Tag = CTy->getTag();
   if (Tag == dwarf::DW_TAG_structure_type || Tag == dwarf::DW_TAG_union_type) {
     // Handle forward declaration differently as it does not have members.
     if (CTy->isForwardDecl())
-      visitFwdDeclType(CTy, Tag == dwarf::DW_TAG_union_type, TypeId);
+      return visitFwdDeclType(CTy, Tag == dwarf::DW_TAG_union_type, TypeId);
     else
-      visitStructType(CTy, Tag == dwarf::DW_TAG_structure_type, TypeId);
+      return visitStructType(CTy, Tag == dwarf::DW_TAG_structure_type, TypeId);
   } else if (Tag == dwarf::DW_TAG_array_type)
-    visitArrayType(CTy, TypeId);
+    return visitArrayType(CTy, TypeId);
   else if (Tag == dwarf::DW_TAG_enumeration_type)
-    visitEnumType(CTy, TypeId);
+    return visitEnumType(CTy, TypeId);
+  return false;
 }
 
 /// Handle pointer, typedef, const, volatile, restrict and member types.
-void BTFDebug::visitDerivedType(const DIDerivedType *DTy, uint32_t &TypeId,
+bool BTFDebug::visitDerivedType(const DIDerivedType *DTy, uint32_t &TypeId,
                                 bool CheckPointer, bool SeenPointer) {
   unsigned Tag = DTy->getTag();
 
@@ -578,7 +603,7 @@ void BTFDebug::visitDerivedType(const DIDerivedType *DTy, uint32_t &TypeId,
           Fixup.first = CTag == dwarf::DW_TAG_union_type;
           Fixup.second.push_back(TypeEntry.get());
           TypeId = addType(std::move(TypeEntry), DTy);
-          return;
+          return true;
         }
       }
     }
@@ -590,7 +615,7 @@ void BTFDebug::visitDerivedType(const DIDerivedType *DTy, uint32_t &TypeId,
     auto TypeEntry = std::make_unique<BTFTypeDerived>(DTy, Tag, false);
     TypeId = addType(std::move(TypeEntry), DTy);
   } else if (Tag != dwarf::DW_TAG_member) {
-    return;
+    return false;
   }
 
   // Visit base type of pointer, typedef, const, volatile, restrict or
@@ -600,6 +625,7 @@ void BTFDebug::visitDerivedType(const DIDerivedType *DTy, uint32_t &TypeId,
     visitTypeEntry(DTy->getBaseType(), TempTypeId, true, false);
   else
     visitTypeEntry(DTy->getBaseType(), TempTypeId, CheckPointer, SeenPointer);
+  return true;
 }
 
 void BTFDebug::visitTypeEntry(const DIType *Ty, uint32_t &TypeId,
@@ -641,17 +667,18 @@ void BTFDebug::visitTypeEntry(const DIType *Ty, uint32_t &TypeId,
     return;
   }
 
+  bool IsKnown = false;
   if (const auto *BTy = dyn_cast<DIBasicType>(Ty))
-    visitBasicType(BTy, TypeId);
+    IsKnown = visitBasicType(BTy, TypeId);
   else if (const auto *STy = dyn_cast<DISubroutineType>(Ty))
-    visitSubroutineType(STy, false, std::unordered_map<uint32_t, StringRef>(),
-                        TypeId);
+    IsKnown = visitSubroutineType(
+        STy, false, std::unordered_map<uint32_t, StringRef>(), TypeId);
   else if (const auto *CTy = dyn_cast<DICompositeType>(Ty))
-    visitCompositeType(CTy, TypeId);
+    IsKnown = visitCompositeType(CTy, TypeId);
   else if (const auto *DTy = dyn_cast<DIDerivedType>(Ty))
-    visitDerivedType(DTy, TypeId, CheckPointer, SeenPointer);
-  else
-    llvm_unreachable("Unknown DIType");
+    IsKnown = visitDerivedType(DTy, TypeId, CheckPointer, SeenPointer);
+  if (!IsKnown)
+    TypeId = addUnknownType(Ty);
 }
 
 void BTFDebug::visitTypeEntry(const DIType *Ty) {

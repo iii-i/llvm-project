@@ -259,6 +259,7 @@ class BTFDebug : public DebugHandlerBase {
   std::map<StringRef, std::pair<bool, std::vector<BTFTypeDerived *>>>
       FixupDerivedTypes;
   std::set<const Function *>ProtoFunctions;
+  uint32_t ByteTypeId;
 
   /// Add types to TypeEntries.
   /// @{
@@ -266,6 +267,8 @@ class BTFDebug : public DebugHandlerBase {
   uint32_t addType(std::unique_ptr<BTFTypeBase> TypeEntry, const DIType *Ty);
   /// Add types to TypeEntries only and return type id.
   uint32_t addType(std::unique_ptr<BTFTypeBase> TypeEntry);
+  /// Add unknown types to TypeEntries and DIToIdMap.
+  uint32_t addUnknownType(const DIType *Ty);
   /// @}
 
   /// IR type visiting functions.
@@ -273,19 +276,19 @@ class BTFDebug : public DebugHandlerBase {
   void visitTypeEntry(const DIType *Ty);
   void visitTypeEntry(const DIType *Ty, uint32_t &TypeId, bool CheckPointer,
                       bool SeenPointer);
-  void visitBasicType(const DIBasicType *BTy, uint32_t &TypeId);
-  void visitSubroutineType(
+  bool visitBasicType(const DIBasicType *BTy, uint32_t &TypeId);
+  bool visitSubroutineType(
       const DISubroutineType *STy, bool ForSubprog,
       const std::unordered_map<uint32_t, StringRef> &FuncArgNames,
       uint32_t &TypeId);
-  void visitFwdDeclType(const DICompositeType *CTy, bool IsUnion,
+  bool visitFwdDeclType(const DICompositeType *CTy, bool IsUnion,
                         uint32_t &TypeId);
-  void visitCompositeType(const DICompositeType *CTy, uint32_t &TypeId);
-  void visitStructType(const DICompositeType *STy, bool IsStruct,
+  bool visitCompositeType(const DICompositeType *CTy, uint32_t &TypeId);
+  bool visitStructType(const DICompositeType *STy, bool IsStruct,
                        uint32_t &TypeId);
-  void visitArrayType(const DICompositeType *ATy, uint32_t &TypeId);
-  void visitEnumType(const DICompositeType *ETy, uint32_t &TypeId);
-  void visitDerivedType(const DIDerivedType *DTy, uint32_t &TypeId,
+  bool visitArrayType(const DICompositeType *ATy, uint32_t &TypeId);
+  bool visitEnumType(const DICompositeType *ETy, uint32_t &TypeId);
+  bool visitDerivedType(const DIDerivedType *DTy, uint32_t &TypeId,
                         bool CheckPointer, bool SeenPointer);
   void visitMapDefType(const DIType *Ty, uint32_t &TypeId);
   /// @}
@@ -322,6 +325,9 @@ class BTFDebug : public DebugHandlerBase {
 
   /// Emit the .BTF.ext section.
   void emitBTFExtSection();
+
+  /// Generate ArrayIndexTypeId unless it's already generated.
+  void generateArrayIndexTypeId();
 
 protected:
   /// Gather pre-function debug information.
