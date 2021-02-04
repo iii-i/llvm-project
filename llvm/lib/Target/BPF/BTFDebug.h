@@ -195,6 +195,18 @@ public:
   void emitType(MCStreamer &OS) override;
 };
 
+/// Handle binary floating point type.
+class BTFTypeFloat : public BTFTypeBase {
+  StringRef Name;
+  uint32_t IntVal; ///< Bits
+
+public:
+  BTFTypeFloat(uint32_t SizeInBits, StringRef TypeName);
+  uint32_t getSize() override { return BTFTypeBase::getSize() + sizeof(uint32_t); }
+  void completeType(BTFDebug &BDebug) override;
+  void emitType(MCStreamer &OS) override;
+};
+
 /// String table.
 class BTFStringTable {
   /// String table size in bytes.
