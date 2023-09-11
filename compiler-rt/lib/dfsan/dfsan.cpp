@@ -794,7 +794,7 @@ void PrintNoOriginTrackingWarning() {
 
 void PrintNoTaintWarning(const void *address) {
   Decorator d;
-  Printf("  %sDFSan: no tainted value at %x%s\n", d.Warning(), address,
+  Printf("  %sDFSan: no tainted value at %p%s\n", d.Warning(), address,
          d.Default());
 }
 
