@@ -517,7 +517,6 @@ class DataFlowSanitizer {
 
   Value *getShadowOffset(Value *Addr, IRBuilder<> &IRB);
   Value *getShadowAddress(Value *Addr, Instruction *Pos);
-  Value *getShadowAddress(Value *Addr, Instruction *Pos, Value *ShadowOffset);
   std::pair<Value *, Value *>
   getShadowOriginAddress(Value *Addr, Align InstAlignment, Instruction *Pos);
   bool isInstrumented(const Function *F);
@@ -1947,16 +1946,16 @@ DataFlowSanitizer::getShadowOriginAddress(Value *Addr, Align InstAlignment,
   return std::make_pair(ShadowPtr, OriginPtr);
 }
 
-Value *DataFlowSanitizer::getShadowAddress(Value *Addr, Instruction *Pos,
-                                           Value *ShadowOffset) {
-  IRBuilder<> IRB(Pos);
-  return IRB.CreateIntToPtr(ShadowOffset, PrimitiveShadowPtrTy);
-}
-
 Value *DataFlowSanitizer::getShadowAddress(Value *Addr, Instruction *Pos) {
   IRBuilder<> IRB(Pos);
-  Value *ShadowOffset = getShadowOffset(Addr, IRB);
-  return getShadowAddress(Addr, Pos, ShadowOffset);
+  Value *ShadowAddress = getShadowOffset(Addr, IRB);
+
+  if (MapParams->ShadowBase != 0) {
+    ShadowAddress = IRB.CreateAdd(
+        ShadowAddress, ConstantInt::get(IntptrTy, MapParams->ShadowBase));
+  }
+
+  return IRB.CreateIntToPtr(ShadowAddress, PrimitiveShadowPtrTy);
 }
 
 Value *DFSanFunction::combineShadowsThenConvert(Type *T, Value *V1, Value *V2,
