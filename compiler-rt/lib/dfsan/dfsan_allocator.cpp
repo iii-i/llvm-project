@@ -39,6 +39,8 @@ struct DFsanMapUnmapCallback {
 
 #if defined(__aarch64__)
 const uptr kAllocatorSpace = 0xE00000000000ULL;
+#elif defined(__s390x__)
+const uptr kAllocatorSpace = 0x440000000000ULL;
 #else
 const uptr kAllocatorSpace = 0x700000000000ULL;
 #endif
