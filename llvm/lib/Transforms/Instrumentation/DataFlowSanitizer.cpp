@@ -644,6 +644,7 @@ struct DFSanFunction {
   Value *getRetvalOriginTLS();
 
   Value *getOrigin(Value *V);
+  Value *getOutgoingArgOrigin(CallBase &CB, unsigned ArgNo);
   void setOrigin(Instruction *I, Value *Origin);
   /// Generates IR to compute the origin of the last operand with a taint label.
   Value *combineOperandOrigins(Instruction *Inst);
@@ -658,6 +659,7 @@ struct DFSanFunction {
                         ConstantInt *Zero = nullptr);
 
   Value *getShadow(Value *V);
+  Value *getOutgoingArgShadow(CallBase &CB, unsigned ArgNo);
   void setShadow(Instruction *I, Value *Shadow);
   /// Generates IR to compute the union of the two given shadows, inserting it
   /// before Pos. The combined value is with primitive type.
@@ -1841,6 +1843,13 @@ Value *DFSanFunction::getOrigin(Value *V) {
   return Origin;
 }
 
+Value *DFSanFunction::getOutgoingArgOrigin(CallBase &CB, unsigned ArgNo) {
+  if (!CB.paramHasAttr(ArgNo, Attribute::ByVal))
+    return getOrigin(CB.getArgOperand(ArgNo));
+
+  return loadShadowOrigin(CB.getArgOperand(ArgNo), F->getParent()->getDataLayout().getTypeStoreSize(CB.getParamByValType(ArgNo)), Align(), &CB).second;
+}
+
 void DFSanFunction::setOrigin(Instruction *I, Value *Origin) {
   if (!DFS.shouldTrackOrigins())
     return;
@@ -1897,6 +1906,13 @@ Value *DFSanFunction::getShadow(Value *V) {
     }
   }
   return Shadow;
+}
+
+Value *DFSanFunction::getOutgoingArgShadow(CallBase &CB, unsigned ArgNo) {
+  if (!CB.paramHasAttr(ArgNo, Attribute::ByVal))
+    return getShadow(CB.getArgOperand(ArgNo));
+
+  return IRBuilder<>(&CB).CreateLoad(DFS.getShadowTy(CB.getParamByValType(ArgNo)), DFS.getShadowAddress(CB.getArgOperand(ArgNo), &CB));
 }
 
 void DFSanFunction::setShadow(Instruction *I, Value *Shadow) {
@@ -3023,11 +3039,11 @@ void DFSanVisitor::addShadowArguments(Function &F, CallBase &CB,
                                       IRBuilder<> &IRB) {
   FunctionType *FT = F.getFunctionType();
 
-  auto *I = CB.arg_begin();
+  unsigned I = 0;
 
   // Adds non-variable argument shadows.
-  for (unsigned N = FT->getNumParams(); N != 0; ++I, --N)
-    Args.push_back(DFSF.collapseToPrimitiveShadow(DFSF.getShadow(*I), &CB));
+  for (unsigned N = FT->getNumParams(); I < N; ++I)
+    Args.push_back(DFSF.collapseToPrimitiveShadow(DFSF.getOutgoingArgShadow(CB, I), &CB));
 
   // Adds variable argument shadows.
   if (FT->isVarArg()) {
@@ -3037,9 +3053,9 @@ void DFSanVisitor::addShadowArguments(Function &F, CallBase &CB,
         new AllocaInst(LabelVATy, getDataLayout().getAllocaAddrSpace(),
                        "labelva", &DFSF.F->getEntryBlock().front());
 
-    for (unsigned N = 0; I != CB.arg_end(); ++I, ++N) {
-      auto *LabelVAPtr = IRB.CreateStructGEP(LabelVATy, LabelVAAlloca, N);
-      IRB.CreateStore(DFSF.collapseToPrimitiveShadow(DFSF.getShadow(*I), &CB),
+    for (unsigned J = 0, N = CB.arg_size(); I < N; ++I, ++J) {
+      auto *LabelVAPtr = IRB.CreateStructGEP(LabelVATy, LabelVAAlloca, J);
+      IRB.CreateStore(DFSF.collapseToPrimitiveShadow(DFSF.getOutgoingArgShadow(CB, I), &CB),
                       LabelVAPtr);
     }
 
@@ -3062,11 +3078,11 @@ void DFSanVisitor::addOriginArguments(Function &F, CallBase &CB,
                                       IRBuilder<> &IRB) {
   FunctionType *FT = F.getFunctionType();
 
-  auto *I = CB.arg_begin();
+  unsigned I = 0;
 
   // Add non-variable argument origins.
-  for (unsigned N = FT->getNumParams(); N != 0; ++I, --N)
-    Args.push_back(DFSF.getOrigin(*I));
+  for (unsigned N = FT->getNumParams(); I < N; ++I)
+    Args.push_back(DFSF.getOutgoingArgOrigin(CB, I));
 
   // Add variable argument origins.
   if (FT->isVarArg()) {
@@ -3076,9 +3092,9 @@ void DFSanVisitor::addOriginArguments(Function &F, CallBase &CB,
         new AllocaInst(OriginVATy, getDataLayout().getAllocaAddrSpace(),
                        "originva", &DFSF.F->getEntryBlock().front());
 
-    for (unsigned N = 0; I != CB.arg_end(); ++I, ++N) {
-      auto *OriginVAPtr = IRB.CreateStructGEP(OriginVATy, OriginVAAlloca, N);
-      IRB.CreateStore(DFSF.getOrigin(*I), OriginVAPtr);
+    for (unsigned J = 0, N = CB.arg_size(); I < N; ++I, ++J) {
+      auto *OriginVAPtr = IRB.CreateStructGEP(OriginVATy, OriginVAAlloca, J);
+      IRB.CreateStore(DFSF.getOutgoingArgOrigin(CB, I), OriginVAPtr);
     }
 
     Args.push_back(IRB.CreateStructGEP(OriginVATy, OriginVAAlloca, 0));
@@ -3405,10 +3421,10 @@ void DFSanVisitor::visitCallBase(CallBase &CB) {
   for (unsigned I = 0, N = FT->getNumParams(); I != N; ++I) {
     if (ShouldTrackOrigins) {
       // Ignore overflowed origins
-      Value *ArgShadow = DFSF.getShadow(CB.getArgOperand(I));
+      Value *ArgShadow = DFSF.getOutgoingArgShadow(CB, I);
       if (I < DFSF.DFS.NumOfElementsInArgOrgTLS &&
           !DFSF.DFS.isZeroShadow(ArgShadow))
-        IRB.CreateStore(DFSF.getOrigin(CB.getArgOperand(I)),
+        IRB.CreateStore(DFSF.getOutgoingArgOrigin(CB, I),
                         DFSF.getArgOriginTLS(I, IRB));
     }
 
@@ -3418,7 +3434,7 @@ void DFSanVisitor::visitCallBase(CallBase &CB) {
     // after overflow have zero shadow values.
     if (ArgOffset + Size > ArgTLSSize)
       break;
-    IRB.CreateAlignedStore(DFSF.getShadow(CB.getArgOperand(I)),
+    IRB.CreateAlignedStore(DFSF.getOutgoingArgShadow(CB, I),
                            DFSF.getArgTLS(FT->getParamType(I), ArgOffset, IRB),
                            ShadowTLSAlignment);
     ArgOffset += alignTo(Size, ShadowTLSAlignment);
