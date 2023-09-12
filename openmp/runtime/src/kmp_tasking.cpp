@@ -1554,7 +1554,7 @@ kmp_task_t *__kmp_task_alloc(ident_t *loc_ref, kmp_int32 gtid,
   task = KMP_TASKDATA_TO_TASK(taskdata);
 
 // Make sure task & taskdata are aligned appropriately
-#if KMP_ARCH_X86 || KMP_ARCH_PPC64 || !KMP_HAVE_QUAD
+#if KMP_ARCH_X86 || KMP_ARCH_PPC64 || KMP_ARCH_S390X || !KMP_HAVE_QUAD
   KMP_DEBUG_ASSERT((((kmp_uintptr_t)taskdata) & (sizeof(double) - 1)) == 0);
   KMP_DEBUG_ASSERT((((kmp_uintptr_t)task) & (sizeof(double) - 1)) == 0);
 #else
