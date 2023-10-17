@@ -2310,9 +2310,18 @@ __kmp_invoke_microtask:
 	.cfi_startproc
 
 	stmg	%r6,%r14,48(%r15)
+	.cfi_offset %r6, -112
+	.cfi_offset %r7, -104
+	.cfi_offset %r8, -96
+	.cfi_offset %r9, -88
+	.cfi_offset %r10, -80
+	.cfi_offset %r11, -72
+	.cfi_offset %r12, -64
+	.cfi_offset %r13, -56
+	.cfi_offset %r14, -48
+	.cfi_offset %r15, -40
 	lgr	%r11,%r15
-	.cfi_def_cfa	%r15, 0
-	.cfi_offset	%r15, 0
+	.cfi_def_cfa %r11, 160
 
 	// Compute the dynamic stack size:
 	//
@@ -2342,7 +2351,7 @@ __kmp_invoke_microtask:
 #if OMPT_SUPPORT
 	// Save frame pointer into exit_frame
 	lg	%r8,160(%r11)
-	stg	%r15,0(%r8)
+	stg	%r11,0(%r8)
 #endif
 
 	// Prepare arguments for the pkfn function (first 5 using r2-r6 registers)
