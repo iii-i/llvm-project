@@ -1737,6 +1737,9 @@ __kmpc_omp_reg_task_with_affinity(ident_t *loc_ref, kmp_int32 gtid,
 // gtid: global thread ID of caller
 // task: the task to invoke
 // current_task: the task to resume after task invocation
+#ifdef __s390x__
+__attribute__((target("backchain")))
+#endif
 static void __kmp_invoke_task(kmp_int32 gtid, kmp_task_t *task,
                               kmp_taskdata_t *current_task) {
   kmp_taskdata_t *taskdata = KMP_TASK_TO_TASKDATA(task);
