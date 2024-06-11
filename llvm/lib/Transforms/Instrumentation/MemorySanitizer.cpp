@@ -1159,6 +1159,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   SmallVector<std::pair<IntrinsicInst *, AllocaInst *>, 16> LifetimeStartList;
   SmallVector<StoreInst *, 16> StoreList;
   int64_t SplittableBlocksCount = 0;
+  SmallVector<ReturnInst *, 16> Returns;
 
   MemorySanitizerVisitor(Function &F, MemorySanitizer &MS,
                          const TargetLibraryInfo &TLI)
@@ -1541,6 +1542,13 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     }
 
     VAHelper->finalizeInstrumentation();
+
+    // Poison all allocas before returning.
+    for (auto Return : Returns) {
+      IRBuilder<> IRB(Return);
+      for (AllocaInst *AI : AllocaSet)
+        instrumentAlloca(*AI, IRB);
+    }
 
     // Poison llvm.lifetime.start intrinsics, if we haven't fallen back to
     // instrumenting only allocas.
@@ -4363,13 +4371,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   void visitReturnInst(ReturnInst &I) {
-    IRBuilder<> IRB(&I);
+    Returns.push_back(&I);
     Value *RetVal = I.getReturnValue();
     if (!RetVal)
       return;
     // Don't emit the epilogue for musttail call returns.
     if (isAMustTailRetVal(RetVal))
       return;
+    IRBuilder<> IRB(&I);
     Value *ShadowPtr = getShadowPtrForRetval(IRB);
     bool HasNoUndef = F.hasRetAttribute(Attribute::NoUndef);
     bool StoreShadow = !(MS.EagerChecks && HasNoUndef);
@@ -4455,10 +4464,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     }
   }
 
-  void instrumentAlloca(AllocaInst &I, Instruction *InsPoint = nullptr) {
-    if (!InsPoint)
-      InsPoint = &I;
-    NextNodeIRBuilder IRB(InsPoint);
+  void instrumentAlloca(AllocaInst &I, IRBuilder<> &IRB) {
     const DataLayout &DL = F.getParent()->getDataLayout();
     TypeSize TS = DL.getTypeAllocSize(I.getAllocatedType());
     Value *Len = IRB.CreateTypeSize(MS.IntptrTy, TS);
@@ -4471,6 +4477,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     else
       poisonAllocaUserspace(I, IRB, Len);
   }
+
+  void instrumentAlloca(AllocaInst &I, Instruction *InsPoint = nullptr) {
+    if (!InsPoint)
+      InsPoint = &I;
+    NextNodeIRBuilder IRB(InsPoint);
+    instrumentAlloca(I, IRB);
+  }
+
 
   void visitAllocaInst(AllocaInst &I) {
     setShadow(&I, getCleanShadow(&I));
