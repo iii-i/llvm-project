@@ -6099,7 +6099,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (Arg *A = Args.getLastArg(options::OPT_fpcc_struct_return,
                                options::OPT_freg_struct_return)) {
-    if (TC.getArch() != llvm::Triple::x86) {
+    // z/OS has its own ABI, which these options do not affect.
+    bool IsSupported =
+        TC.getArch() == llvm::Triple::x86 ||
+        (TC.getTriple().isSystemZ() && !TC.getTriple().isOSzOS());
+    if (!IsSupported) {
       D.Diag(diag::err_drv_unsupported_opt_for_target)
           << A->getSpelling() << RawTriple.str();
     } else if (A->getOption().matches(options::OPT_fpcc_struct_return)) {
