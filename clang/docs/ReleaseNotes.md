@@ -776,6 +776,14 @@ features cannot lower the translation-unit ABI level;
 
 #### SystemZ Support
 
+- `-freg-struct-return` now selects the alternative ABI used by the Linux
+  kernel, in which composite values of up to 8 bytes are returned in `%r2`, and
+  composite values of up to 16 bytes in `%r2` and `%r3`, instead of in memory.
+  Each register holds its part of the value in its low-order bits, just like a
+  composite of the same size is passed in an argument register.
+  `-fpcc-struct-return` selects the default ABI, in which composite values are
+  always returned in memory.
+
 ### DWARF Support in Clang
 
 ### Floating Point Support in Clang

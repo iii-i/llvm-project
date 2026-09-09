@@ -6099,7 +6099,13 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (Arg *A = Args.getLastArg(options::OPT_fpcc_struct_return,
                                options::OPT_freg_struct_return)) {
-    if (TC.getArch() != llvm::Triple::x86) {
+    // On SystemZ these options select between the default ABI, which returns
+    // composite values in memory, and the Linux kernel ABI, which returns
+    // composites of up to 16 bytes in %r2 and %r3.  The latter is not
+    // supported on z/OS, which has its own ABI.
+    bool IsSupportedSystemZ =
+        TC.getTriple().isSystemZ() && !TC.getTriple().isOSzOS();
+    if (TC.getArch() != llvm::Triple::x86 && !IsSupportedSystemZ) {
       D.Diag(diag::err_drv_unsupported_opt_for_target)
           << A->getSpelling() << RawTriple.str();
     } else if (A->getOption().matches(options::OPT_fpcc_struct_return)) {
