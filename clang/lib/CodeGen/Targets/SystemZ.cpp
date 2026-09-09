@@ -23,15 +23,19 @@ namespace {
 class SystemZABIInfo : public ABIInfo {
   bool HasVector;
   bool IsSoftFloatABI;
+  bool ReturnCompositesInRegs;
 
 public:
-  SystemZABIInfo(CodeGenTypes &CGT, bool HV, bool SF)
-      : ABIInfo(CGT), HasVector(HV), IsSoftFloatABI(SF) {}
+  SystemZABIInfo(CodeGenTypes &CGT, bool HV, bool SF, bool RCIR)
+      : ABIInfo(CGT), HasVector(HV), IsSoftFloatABI(SF),
+        ReturnCompositesInRegs(RCIR) {}
 
   bool isPromotableIntegerTypeForABI(QualType Ty) const;
   bool isCompoundType(QualType Ty) const;
   bool isVectorArgumentType(QualType Ty) const;
   llvm::Type *getFPArgumentType(QualType Ty, uint64_t Size) const;
+  std::optional<ABIArgInfo>
+  classifyCompositeReturnTypeInRegs(QualType Ty) const;
   QualType getSingleElementType(QualType Ty) const;
 
   ABIArgInfo classifyReturnType(QualType RetTy) const;
@@ -57,10 +61,11 @@ class SystemZTargetCodeGenInfo : public TargetCodeGenInfo {
   bool isVectorTypeBased(const Type *Ty, bool IsParam) const;
 
 public:
-  SystemZTargetCodeGenInfo(CodeGenTypes &CGT, bool HasVector, bool SoftFloatABI)
-      : TargetCodeGenInfo(
-            std::make_unique<SystemZABIInfo>(CGT, HasVector, SoftFloatABI)),
-            Ctx(CGT.getContext()) {
+  SystemZTargetCodeGenInfo(CodeGenTypes &CGT, bool HasVector, bool SoftFloatABI,
+                           bool ReturnCompositesInRegs)
+      : TargetCodeGenInfo(std::make_unique<SystemZABIInfo>(
+            CGT, HasVector, SoftFloatABI, ReturnCompositesInRegs)),
+        Ctx(CGT.getContext()) {
     SwiftInfo =
         std::make_unique<SwiftABIInfo>(CGT, /*SwiftErrorInRegister=*/false);
   }
@@ -205,6 +210,39 @@ llvm::Type *SystemZABIInfo::getFPArgumentType(QualType Ty,
     }
 
   return nullptr;
+}
+
+// Under the alternative Linux kernel ABI, composite values of up to 16 bytes
+// are returned in %r2 and %r3 instead of in memory.  Classify such a value, or
+// return std::nullopt if Ty has to be returned in memory after all.
+//
+// Each register holds its part of the value in its low-order bits, just like a
+// composite of the same size is passed in an argument register.  So a value of
+// up to 8 bytes is returned as an unextended integer of that size, and a larger
+// value is split after 8 bytes into two such integers.
+std::optional<ABIArgInfo>
+SystemZABIInfo::classifyCompositeReturnTypeInRegs(QualType Ty) const {
+  if (!ReturnCompositesInRegs)
+    return std::nullopt;
+
+  // Structures with flexible array members have a variable length, so they
+  // cannot be held in registers.
+  if (const auto *RD = Ty->getAsRecordDecl())
+    if (RD->hasFlexibleArrayMember())
+      return std::nullopt;
+
+  uint64_t Size = getContext().getTypeSize(Ty);
+  if (Size == 0 || Size > 128)
+    return std::nullopt;
+
+  if (Size > 64)
+    return ABIArgInfo::getDirect(llvm::StructType::get(
+        llvm::Type::getInt64Ty(getVMContext()),
+        llvm::IntegerType::get(getVMContext(), Size - 64)));
+
+  llvm::IntegerType *RetTy = llvm::IntegerType::get(getVMContext(), Size);
+  return Size <= 32 ? ABIArgInfo::getNoExtend(RetTy)
+                    : ABIArgInfo::getDirect(RetTy);
 }
 
 QualType SystemZABIInfo::getSingleElementType(QualType Ty) const {
@@ -416,7 +454,13 @@ ABIArgInfo SystemZABIInfo::classifyReturnType(QualType RetTy) const {
     return ABIArgInfo::getIgnore();
   if (isVectorArgumentType(RetTy))
     return ABIArgInfo::getDirect();
-  if (isCompoundType(RetTy) || getContext().getTypeSize(RetTy) > 64)
+  if (isCompoundType(RetTy)) {
+    if (std::optional<ABIArgInfo> Info =
+            classifyCompositeReturnTypeInRegs(RetTy))
+      return *Info;
+    return getNaturalAlignIndirect(RetTy, getDataLayout().getAllocaAddrSpace());
+  }
+  if (getContext().getTypeSize(RetTy) > 64)
     return getNaturalAlignIndirect(RetTy, getDataLayout().getAllocaAddrSpace());
   return (isPromotableIntegerTypeForABI(RetTy) ? ABIArgInfo::getExtend(RetTy)
                                                : ABIArgInfo::getDirect());
@@ -951,9 +995,10 @@ RValue ZOSXPLinkABIInfo::EmitZOSVAArg(CodeGenFunction &CGF, Address VAListAddr,
 
 std::unique_ptr<TargetCodeGenInfo>
 CodeGen::createSystemZTargetCodeGenInfo(CodeGenModule &CGM, bool HasVector,
-                                        bool SoftFloatABI) {
-  return std::make_unique<SystemZTargetCodeGenInfo>(CGM.getTypes(), HasVector,
-                                                    SoftFloatABI);
+                                        bool SoftFloatABI,
+                                        bool ReturnCompositesInRegs) {
+  return std::make_unique<SystemZTargetCodeGenInfo>(
+      CGM.getTypes(), HasVector, SoftFloatABI, ReturnCompositesInRegs);
 }
 
 std::unique_ptr<TargetCodeGenInfo>
