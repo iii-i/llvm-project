@@ -252,7 +252,10 @@ createTargetCodeGenInfo(CodeGenModule &CGM) {
     bool HasVector = !SoftFloat && Target.getABI() == "vector";
     if (Triple.getOS() == llvm::Triple::ZOS)
       return createSystemZ_ZOS_TargetCodeGenInfo(CGM, HasVector, SoftFloat);
-    return createSystemZTargetCodeGenInfo(CGM, HasVector, SoftFloat);
+    bool ReturnCompositesInRegs =
+        CodeGenOpts.getStructReturnConvention() == CodeGenOptions::SRCK_InRegs;
+    return createSystemZTargetCodeGenInfo(CGM, HasVector, SoftFloat,
+                                          ReturnCompositesInRegs);
   }
 
   case llvm::Triple::tce:
