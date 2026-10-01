@@ -92,6 +92,11 @@ def FeatureKernelABIStruct32 : KernelABITweak<
   "Pass and return composites of up to 32 bytes in GPRs"
 >;
 
+def FeatureKernelABINoRSA : KernelABITweak<
+  "no-rsa", "NoRSA",
+  "Use a 120-byte register save area (requires packed-stack and backchain)"
+>;
+
 //===----------------------------------------------------------------------===//
 //
 // New features added in the Ninth Edition of the z/Architecture

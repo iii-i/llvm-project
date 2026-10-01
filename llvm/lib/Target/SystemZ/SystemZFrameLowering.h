@@ -104,10 +104,13 @@ public:
 
   bool usePackedStack(MachineFunction &MF) const;
 
+  // Return the size of the caller-allocated area.
+  unsigned getCallFrameSize(const MachineFunction &MF) const;
+
   // Return the offset of the backchain.
   unsigned getBackchainOffset(MachineFunction &MF) const override {
     // The back chain is stored topmost with packed-stack.
-    return usePackedStack(MF) ? SystemZMC::ELFCallFrameSize - 8 : 0;
+    return usePackedStack(MF) ? getCallFrameSize(MF) - 8 : 0;
   }
 
   // Return the offset of the return address.

@@ -30,6 +30,9 @@ namespace SystemZMC {
 // a stack frame.
 const int64_t ELFCallFrameSize = 160;
 
+// The same with the experimental kernel ABI tweak no-rsa.
+const int64_t ELFNoRSACallFrameSize = 120;
+
 // The offset of the DWARF CFA from the incoming stack pointer.
 const int64_t ELFCFAOffsetFromInitialSP = ELFCallFrameSize;
 

@@ -2147,6 +2147,8 @@ SDValue SystemZTargetLowering::LowerFormalArguments(
         auto &XPRegs =
             Subtarget.getSpecialRegisters<SystemZXPLINK64Registers>();
         ArgSPOffset += XPRegs.getCallFrameSize();
+      } else {
+        ArgSPOffset += TFL->getCallFrameSize(MF) - SystemZMC::ELFCallFrameSize;
       }
       int FI =
           MFI.CreateFixedObject(LocVT.getSizeInBits() / 8, ArgSPOffset, true);
@@ -2236,7 +2238,8 @@ SDValue SystemZTargetLowering::LowerFormalArguments(
 
     // Likewise the address (in the form of a frame index) of where the
     // first stack vararg would be.  The 1-byte size here is arbitrary.
-    int64_t VarArgsOffset = CCInfo.getStackSize();
+    int64_t VarArgsOffset = CCInfo.getStackSize() + TFL->getCallFrameSize(MF) -
+                            SystemZMC::ELFCallFrameSize;
     FuncInfo->setVarArgsFrameIndex(
         MFI.CreateFixedObject(1, VarArgsOffset, true));
 

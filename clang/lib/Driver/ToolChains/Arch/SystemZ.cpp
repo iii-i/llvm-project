@@ -73,6 +73,7 @@ static const KernelABITweak KernelABITweaks[] = {
     {"r7-arg", "r6-clobbered"},
     {"even-pairs", "struct-arg|int128"},
     {"struct-32", "struct-ret,struct-arg"},
+    {"no-rsa", ""},
 };
 
 static void
@@ -120,6 +121,18 @@ getSystemZKernelABIFeatures(const Driver &D, const llvm::Triple &Triple,
     }
     Features.push_back(
         Args.MakeArgString("+experimental-kernel-abi-" + T.Name));
+  }
+
+  // The register save area of no-rsa is defined only for this layout.
+  if (Enabled.contains("no-rsa")) {
+    if (!Args.hasFlag(options::OPT_mpacked_stack, options::OPT_mno_packed_stack,
+                      false))
+      D.Diag(diag::err_drv_argument_only_allowed_with)
+          << "no-rsa" << "-mpacked-stack";
+    if (!Args.hasFlag(options::OPT_mbackchain, options::OPT_mno_backchain,
+                      false))
+      D.Diag(diag::err_drv_argument_only_allowed_with)
+          << "no-rsa" << "-mbackchain";
   }
 }
 

@@ -71,7 +71,11 @@ SystemZSubtarget::SystemZSubtarget(const Triple &TT, const std::string &CPU,
     : SystemZGenSubtargetInfo(TT, CPU, TuneCPU, FS), TargetTriple(TT),
       SpecialRegisters(initializeSpecialRegisters()),
       InstrInfo(initializeSubtargetDependencies(CPU, TuneCPU, FS)),
-      TLInfo(TM, *this), FrameLowering(SystemZFrameLowering::create(*this)) {}
+      TLInfo(TM, *this), FrameLowering(SystemZFrameLowering::create(*this)) {
+  if (isTargetELF() && HasExperimentalKernelABINoRSA)
+    getSpecialRegisters<SystemZELFRegisters>().setCallFrameSize(
+        SystemZMC::ELFNoRSACallFrameSize);
+}
 
 bool SystemZSubtarget::enableSubRegLiveness() const {
   return UseSubRegLiveness;

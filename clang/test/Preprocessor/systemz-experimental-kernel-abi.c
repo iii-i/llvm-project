@@ -9,9 +9,9 @@
 
 // RUN: %clang --target=s390x-linux-gnu -msoft-float \
 // RUN:   -mexperimental-kernel-abi=struct-arg,struct-ret,int128,no-ext \
-// RUN:   -mexperimental-kernel-abi=struct-arg,struct-ret,int128,no-ext,r6-clobbered,r7-arg,even-pairs,struct-32 \
-// RUN:   -E -dM %s -o - | FileCheck \
-// RUN:   --check-prefixes=STRUCT-RET,STRUCT-ARG,INT128,NO-EXT,R6-CLOBBERED,R7-ARG,EVEN-PAIRS,STRUCT-32 %s
+// RUN:   -mexperimental-kernel-abi=struct-arg,struct-ret,int128,no-ext,r6-clobbered,r7-arg,even-pairs,struct-32,no-rsa \
+// RUN:   -mpacked-stack -mbackchain -E -dM %s -o - | FileCheck \
+// RUN:   --check-prefixes=STRUCT-RET,STRUCT-ARG,INT128,NO-EXT,R6-CLOBBERED,R7-ARG,EVEN-PAIRS,STRUCT-32,NO-RSA %s
 
 // NONE-NOT: __S390_EXPERIMENTAL_KERNEL_ABI
 
@@ -23,3 +23,4 @@
 // R7-ARG-DAG: #define __S390_EXPERIMENTAL_KERNEL_ABI_R7_ARG__ 1
 // EVEN-PAIRS-DAG: #define __S390_EXPERIMENTAL_KERNEL_ABI_EVEN_PAIRS__ 1
 // STRUCT-32-DAG: #define __S390_EXPERIMENTAL_KERNEL_ABI_STRUCT_32__ 1
+// NO-RSA-DAG: #define __S390_EXPERIMENTAL_KERNEL_ABI_NO_RSA__ 1

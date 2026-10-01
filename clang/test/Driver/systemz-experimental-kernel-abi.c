@@ -125,3 +125,16 @@
 // RUN:   -mexperimental-kernel-abi=struct-ret -### -c %s 2>&1 \
 // RUN:   | FileCheck --check-prefix=X86 %s
 // X86: error: unsupported option '-mexperimental-kernel-abi=' for target 'x86_64-linux-gnu'
+
+// RUN: %clang --target=s390x-linux-gnu -msoft-float -mpacked-stack -mbackchain \
+// RUN:   -mexperimental-kernel-abi=no-rsa -### -c %s 2>&1 \
+// RUN:   | FileCheck --check-prefix=NO-RSA %s
+// NO-RSA-NOT: error:
+// NO-RSA: "-target-feature" "+experimental-kernel-abi-no-rsa"
+// NO-RSA-NOT: "+experimental-kernel-abi
+
+// RUN: not %clang --target=s390x-linux-gnu -msoft-float \
+// RUN:   -mexperimental-kernel-abi=no-rsa -### -c %s 2>&1 \
+// RUN:   | FileCheck --check-prefix=NO-RSA-ONLY %s
+// NO-RSA-ONLY: error: invalid argument 'no-rsa' only allowed with '-mpacked-stack'
+// NO-RSA-ONLY: error: invalid argument 'no-rsa' only allowed with '-mbackchain'

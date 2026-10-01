@@ -107,6 +107,8 @@ public:
 /// ELF calling convention specific use registers
 /// Particular when on zLinux in 64 bit mode
 class SystemZELFRegisters : public SystemZCallingConventionRegisters {
+  int CallFrameSize = SystemZMC::ELFCallFrameSize;
+
 public:
   int getReturnFunctionAddressRegister() final { return SystemZ::R14D; };
 
@@ -119,7 +121,8 @@ public:
   const uint32_t *getCallPreservedMask(const MachineFunction &MF,
                                        CallingConv::ID CC) const final;
 
-  int getCallFrameSize() final { return SystemZMC::ELFCallFrameSize; }
+  int getCallFrameSize() final { return CallFrameSize; }
+  void setCallFrameSize(int Size) { CallFrameSize = Size; }
 
   int getStackPointerBias() final { return 0; }
 

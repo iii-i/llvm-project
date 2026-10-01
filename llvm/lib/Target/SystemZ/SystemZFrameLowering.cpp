@@ -484,8 +484,7 @@ void SystemZELFFrameLowering::processFunctionBeforeFrameFinalized(
     getOrCreateFramePointerSaveIndex(MF);
 
   // Get the size of our stack frame to be allocated ...
-  uint64_t StackSize = (MFFrame.estimateStackSize(MF) +
-                        SystemZMC::ELFCallFrameSize);
+  uint64_t StackSize = MFFrame.estimateStackSize(MF) + getCallFrameSize(MF);
   // ... and the maximum offset we may need to reach into the
   // caller's frame to access the save area or stack arguments.
   int64_t MaxArgOffset = 0;
@@ -641,10 +640,11 @@ void SystemZELFFrameLowering::emitPrologue(MachineFunction &MF,
       break;
     }
   if (HasStackObject || MFFrame.hasCalls())
-    StackSize += SystemZMC::ELFCallFrameSize;
-  // Don't allocate the incoming reg save area.
-  StackSize = StackSize > SystemZMC::ELFCallFrameSize
-                  ? StackSize - SystemZMC::ELFCallFrameSize
+    StackSize += getCallFrameSize(MF);
+  // Don't allocate the incoming reg save area, which is where the frame
+  // starts relative to the CFA.
+  StackSize = StackSize > SystemZMC::ELFCFAOffsetFromInitialSP
+                  ? StackSize - SystemZMC::ELFCFAOffsetFromInitialSP
                   : 0;
   MFFrame.setStackSize(StackSize);
 
@@ -907,7 +907,8 @@ unsigned SystemZELFFrameLowering::getRegSpillOffset(MachineFunction &MF,
     if (SystemZ::GR64BitRegClass.contains(Reg))
       // Put all GPRs at the top of the Register save area with packed
       // stack. Make room for the backchain if needed.
-      Offset += BackChain ? 24 : 32;
+      Offset += (BackChain ? 24 : 32) -
+                (SystemZMC::ELFCallFrameSize - getCallFrameSize(MF));
     else
       Offset = 0;
   }
@@ -927,6 +928,13 @@ int SystemZELFFrameLowering::getOrCreateFramePointerSaveIndex(
   return FI;
 }
 
+unsigned
+SystemZELFFrameLowering::getCallFrameSize(const MachineFunction &MF) const {
+  return MF.getSubtarget<SystemZSubtarget>()
+      .getSpecialRegisters()
+      ->getCallFrameSize();
+}
+
 bool SystemZELFFrameLowering::usePackedStack(MachineFunction &MF) const {
   bool HasPackedStackAttr = MF.getFunction().hasFnAttribute("packed-stack");
   const SystemZSubtarget &Subtarget = MF.getSubtarget<SystemZSubtarget>();
@@ -934,6 +942,10 @@ bool SystemZELFFrameLowering::usePackedStack(MachineFunction &MF) const {
   bool SoftFloat = Subtarget.hasSoftFloat();
   if (HasPackedStackAttr && BackChain && !SoftFloat)
     report_fatal_error("packed-stack + backchain + hard-float is unsupported.");
+  if (Subtarget.hasExperimentalKernelABINoRSA() &&
+      !(HasPackedStackAttr && BackChain))
+    report_fatal_error("experimental-kernel-abi-no-rsa requires packed-stack "
+                       "and backchain.");
   bool CallConv = MF.getFunction().getCallingConv() != CallingConv::GHC;
   return HasPackedStackAttr && CallConv;
 }
