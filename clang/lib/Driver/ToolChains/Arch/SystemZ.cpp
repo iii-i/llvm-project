@@ -9,6 +9,8 @@
 #include "SystemZ.h"
 #include "clang/Config/config.h"
 #include "clang/Options/Options.h"
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/TargetParser/Host.h"
 
@@ -53,7 +55,70 @@ std::string systemz::getSystemZTargetCPU(const ArgList &Args,
   return CLANG_SYSTEMZ_DEFAULT_ARCH;
 }
 
-void systemz::getSystemZTargetFeatures(const Driver &D, const ArgList &Args,
+namespace {
+struct KernelABITweak {
+  llvm::StringLiteral Name;
+  // A ','-separated list of prerequisites, each of which is a '|'-separated
+  // list of alternatives.
+  llvm::StringLiteral Requires;
+};
+} // namespace
+
+static const KernelABITweak KernelABITweaks[] = {
+    {"struct-ret", ""},
+};
+
+static void
+getSystemZKernelABIFeatures(const Driver &D, const llvm::Triple &Triple,
+                            const ArgList &Args, systemz::FloatABI FloatABI,
+                            std::vector<llvm::StringRef> &Features) {
+  const Arg *A = Args.getLastArg(options::OPT_mexperimental_kernel_abi_EQ);
+  if (!A)
+    return;
+  if (Triple.isOSzOS()) {
+    D.Diag(diag::err_drv_unsupported_opt_for_target)
+        << A->getSpelling() << Triple.str();
+    return;
+  }
+  if (FloatABI != systemz::FloatABI::Soft) {
+    D.Diag(diag::err_drv_argument_only_allowed_with)
+        << A->getAsString(Args) << "-msoft-float";
+    return;
+  }
+
+  llvm::SmallSet<StringRef, 8> Enabled;
+  for (StringRef Value : A->getValues()) {
+    if (llvm::none_of(KernelABITweaks, [&](const KernelABITweak &T) {
+          return T.Name == Value;
+        })) {
+      D.Diag(diag::err_drv_unsupported_option_argument)
+          << A->getSpelling() << Value;
+      return;
+    }
+    Enabled.insert(Value);
+  }
+
+  for (const KernelABITweak &T : KernelABITweaks) {
+    if (!Enabled.contains(T.Name))
+      continue;
+    SmallVector<StringRef, 2> Requires;
+    T.Requires.split(Requires, ',', /*MaxSplit=*/-1, /*KeepEmpty=*/false);
+    for (StringRef Req : Requires) {
+      SmallVector<StringRef, 2> Alternatives;
+      Req.split(Alternatives, '|');
+      if (llvm::none_of(Alternatives,
+                        [&](StringRef Alt) { return Enabled.contains(Alt); }))
+        D.Diag(diag::err_drv_argument_only_allowed_with)
+            << T.Name << llvm::join(Alternatives, "' or '");
+    }
+    Features.push_back(
+        Args.MakeArgString("+experimental-kernel-abi-" + T.Name));
+  }
+}
+
+void systemz::getSystemZTargetFeatures(const Driver &D,
+                                       const llvm::Triple &Triple,
+                                       const ArgList &Args,
                                        std::vector<llvm::StringRef> &Features) {
   // -m(no-)htm overrides use of the transactional-execution facility.
   if (Arg *A = Args.getLastArg(options::OPT_mhtm, options::OPT_mno_htm)) {
@@ -81,4 +146,6 @@ void systemz::getSystemZTargetFeatures(const Driver &D, const ArgList &Args,
     else
       Features.push_back("-unaligned-symbols");
   }
+
+  getSystemZKernelABIFeatures(D, Triple, Args, FloatABI, Features);
 }

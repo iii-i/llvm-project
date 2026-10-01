@@ -165,6 +165,8 @@ void SystemZTargetInfo::fillValidCPUList(
 }
 
 bool SystemZTargetInfo::hasFeature(StringRef Feature) const {
+  if (Feature.consume_front("experimental-kernel-abi-"))
+    return llvm::is_contained(KernelABITweaks, Feature);
   return llvm::StringSwitch<bool>(Feature)
       .Case("systemz", true)
       .Case("arch8", ISARevision >= 8)
@@ -213,6 +215,12 @@ void SystemZTargetInfo::getTargetDefines(const LangOptions &Opts,
     Builder.defineMacro("__VX__");
   if (Opts.ZVector)
     Builder.defineMacro("__VEC__", "10305");
+
+  for (StringRef Tweak : KernelABITweaks) {
+    std::string Name = Tweak.upper();
+    llvm::replace(Name, '-', '_');
+    Builder.defineMacro("__S390_EXPERIMENTAL_KERNEL_ABI_" + Name + "__");
+  }
 
   /* Set __TARGET_LIB__ only if a value was given.  If no value was given  */
   /* we rely on the LE headers to define __TARGET_LIB__.                   */

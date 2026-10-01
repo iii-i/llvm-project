@@ -691,6 +691,10 @@ private:
   /// Are the instrumentation callbacks set up?
   bool CallbacksInitialized = false;
 
+  /// Do the KMSAN metadata functions return their result through a hidden
+  /// pointer parameter?
+  bool MetadataViaHiddenParam = false;
+
   /// The run-time callback to print a warning.
   FunctionCallee WarningFn;
 
@@ -846,7 +850,7 @@ template <typename... ArgsTy>
 FunctionCallee
 MemorySanitizer::getOrInsertMsanMetadataFunction(Module &M, StringRef Name,
                                                  ArgsTy... Args) {
-  if (TargetTriple.getArch() == Triple::systemz) {
+  if (MetadataViaHiddenParam) {
     // SystemZ ABI: shadow/origin pair is returned via a hidden parameter.
     return M.getOrInsertFunction(Name, Type::getVoidTy(*C), PtrTy,
                                  std::forward<ArgsTy>(Args)...);
@@ -854,6 +858,19 @@ MemorySanitizer::getOrInsertMsanMetadataFunction(Module &M, StringRef Name,
 
   return M.getOrInsertFunction(Name, MsanMetadata,
                                std::forward<ArgsTy>(Args)...);
+}
+
+/// Whether the functions in M are compiled with the experimental SystemZ
+/// kernel ABI tweak Tweak.
+static bool hasSystemZKernelABITweak(const Module &M, StringRef Tweak) {
+  std::string Feature = ("+experimental-kernel-abi-" + Tweak).str();
+  for (const Function &F : M) {
+    SmallVector<StringRef, 32> Features;
+    F.getFnAttribute("target-features").getValueAsString().split(Features, ',');
+    if (is_contained(Features, Feature))
+      return true;
+  }
+  return false;
 }
 
 /// Create KMSAN API callbacks.
@@ -886,6 +903,8 @@ void MemorySanitizer::createKernelApi(Module &M, const TargetLibraryInfo &TLI) {
       M.getOrInsertFunction("__msan_get_context_state", PtrTy);
 
   MsanMetadata = StructType::get(PtrTy, PtrTy);
+  MetadataViaHiddenParam = TargetTriple.getArch() == Triple::systemz &&
+                           !hasSystemZKernelABITweak(M, "struct-ret");
 
   for (int ind = 0, size = 1; ind < 4; ind++, size <<= 1) {
     std::string name_load =
@@ -1632,7 +1651,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     MS.RetvalOriginTLS =
         IRB.CreateGEP(MS.MsanContextStateTy, ContextState,
                       {Zero, IRB.getInt32(6)}, "retval_origin");
-    if (MS.TargetTriple.getArch() == Triple::systemz)
+    if (MS.MetadataViaHiddenParam)
       MS.MsanMetadataAlloca = IRB.CreateAlloca(MS.MsanMetadata, 0u);
   }
 
@@ -1892,7 +1911,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   template <typename... ArgsTy>
   Value *createMetadataCall(IRBuilder<> &IRB, FunctionCallee Callee,
                             ArgsTy... Args) {
-    if (MS.TargetTriple.getArch() == Triple::systemz) {
+    if (MS.MetadataViaHiddenParam) {
       IRB.CreateCall(Callee,
                      {MS.MsanMetadataAlloca, std::forward<ArgsTy>(Args)...});
       return IRB.CreateLoad(MS.MsanMetadata, MS.MsanMetadataAlloca);

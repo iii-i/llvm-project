@@ -44,6 +44,21 @@ def FeatureUnalignedSymbols : SystemZFeature<
 
 //===----------------------------------------------------------------------===//
 //
+// Experimental Linux kernel ABI tweaks (-mexperimental-kernel-abi=)
+//
+//===----------------------------------------------------------------------===//
+
+class KernelABITweak<string name, string intname, string desc>
+  : SubtargetFeature<"experimental-kernel-abi-"#name,
+                     "HasExperimentalKernelABI"#intname, "true", desc>;
+
+def FeatureKernelABIStructRet : KernelABITweak<
+  "struct-ret", "StructRet",
+  "Return composites of up to 16 bytes in GPRs"
+>;
+
+//===----------------------------------------------------------------------===//
+//
 // New features added in the Ninth Edition of the z/Architecture
 //
 //===----------------------------------------------------------------------===//

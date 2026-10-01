@@ -33,6 +33,8 @@ class LLVM_LIBRARY_VISIBILITY SystemZTargetInfo : public TargetInfo {
   bool HasVector;
   bool SoftFloat;
   bool UnalignedSymbols;
+  // Enabled -mexperimental-kernel-abi= tweaks, without the feature prefix.
+  llvm::SmallVector<std::string, 0> KernelABITweaks;
   enum AddrSpace { ptr32 = 1 };
 
 public:
@@ -194,6 +196,7 @@ public:
     HasVector = false;
     SoftFloat = false;
     UnalignedSymbols = false;
+    KernelABITweaks.clear();
     for (const auto &Feature : Features) {
       if (Feature == "+transactional-execution")
         HasTransactionalExecution = true;
@@ -203,6 +206,9 @@ public:
         SoftFloat = true;
       else if (Feature == "+unaligned-symbols")
         UnalignedSymbols = true;
+      else if (StringRef(Feature).starts_with("+experimental-kernel-abi-"))
+        KernelABITweaks.push_back(
+            Feature.substr(strlen("+experimental-kernel-abi-")));
     }
     HasVector &= !SoftFloat;
 

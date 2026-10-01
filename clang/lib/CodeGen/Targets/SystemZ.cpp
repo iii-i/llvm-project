@@ -23,16 +23,25 @@ namespace {
 class SystemZABIInfo : public ABIInfo {
   bool HasVector;
   bool IsSoftFloatABI;
+  // -mexperimental-kernel-abi= tweaks.
+  bool KernelStructRet;
 
 public:
   SystemZABIInfo(CodeGenTypes &CGT, bool HV, bool SF)
-      : ABIInfo(CGT), HasVector(HV), IsSoftFloatABI(SF) {}
+      : ABIInfo(CGT), HasVector(HV), IsSoftFloatABI(SF) {
+    const TargetInfo &TI = CGT.getTarget();
+    KernelStructRet = TI.hasFeature("experimental-kernel-abi-struct-ret");
+  }
 
   bool isPromotableIntegerTypeForABI(QualType Ty) const;
   bool isCompoundType(QualType Ty) const;
   bool isVectorArgumentType(QualType Ty) const;
   llvm::Type *getFPArgumentType(QualType Ty, uint64_t Size) const;
   QualType getSingleElementType(QualType Ty) const;
+
+  bool isKernelComposite(QualType Ty) const;
+  uint64_t getKernelMaxCompositeSize() const;
+  ABIArgInfo classifyKernelComposite(QualType Ty) const;
 
   ABIArgInfo classifyReturnType(QualType RetTy) const;
   ABIArgInfo classifyArgumentType(QualType ArgTy) const;
@@ -172,6 +181,34 @@ bool SystemZABIInfo::isCompoundType(QualType Ty) const {
   return (Ty->isAnyComplexType() ||
           Ty->isVectorType() ||
           isAggregateTypeForABI(Ty));
+}
+
+bool SystemZABIInfo::isKernelComposite(QualType Ty) const {
+  return Ty->isAnyComplexType() ||
+         (isAggregateTypeForABI(Ty) && !Ty->isMemberFunctionPointerType());
+}
+
+uint64_t SystemZABIInfo::getKernelMaxCompositeSize() const { return 128; }
+
+// Classify a composite of at most getKernelMaxCompositeSize() bits for the
+// kernel ABI: it is split into doublewords, the last one right-justified.
+ABIArgInfo SystemZABIInfo::classifyKernelComposite(QualType Ty) const {
+  uint64_t Size = getContext().getTypeSize(Ty);
+  assert(Size <= getKernelMaxCompositeSize());
+  if (Size == 0)
+    return ABIArgInfo::getIgnore();
+  if (Size <= 64) {
+    llvm::IntegerType *IntTy = llvm::IntegerType::get(getVMContext(), Size);
+    return Size <= 32 ? ABIArgInfo::getNoExtend(IntTy)
+                      : ABIArgInfo::getDirect(IntTy);
+  }
+  SmallVector<llvm::Type *, 4> Elts((Size - 1) / 64,
+                                    llvm::Type::getInt64Ty(getVMContext()));
+  Elts.push_back(
+      llvm::IntegerType::get(getVMContext(), Size - Elts.size() * 64));
+  return ABIArgInfo::getDirect(llvm::StructType::get(getVMContext(), Elts),
+                               /*Offset=*/0, /*Padding=*/nullptr,
+                               /*CanBeFlattened=*/false);
 }
 
 bool SystemZABIInfo::isVectorArgumentType(QualType Ty) const {
@@ -416,6 +453,9 @@ ABIArgInfo SystemZABIInfo::classifyReturnType(QualType RetTy) const {
     return ABIArgInfo::getIgnore();
   if (isVectorArgumentType(RetTy))
     return ABIArgInfo::getDirect();
+  if (KernelStructRet && isKernelComposite(RetTy) &&
+      getContext().getTypeSize(RetTy) <= getKernelMaxCompositeSize())
+    return classifyKernelComposite(RetTy);
   if (isCompoundType(RetTy) || getContext().getTypeSize(RetTy) > 64)
     return getNaturalAlignIndirect(RetTy, getDataLayout().getAllocaAddrSpace());
   return (isPromotableIntegerTypeForABI(RetTy) ? ABIArgInfo::getExtend(RetTy)

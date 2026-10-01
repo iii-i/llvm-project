@@ -11527,6 +11527,11 @@ verifyNarrowIntegerArgs_Ret(const SmallVectorImpl<ISD::OutputArg> &Outs,
   if (!EnableIntArgExtCheck)
     return;
 
+  // Composites are returned without extension.
+  if (Subtarget.hasExperimentalKernelABIStructRet() &&
+      F->getReturnType()->isAggregateType())
+    return;
+
   if (!isInternal(F) && !verifyNarrowIntegerArgs(Outs)) {
     errs() << "ERROR: Missing extension attribute of returned "
            << "value from function:\n";
