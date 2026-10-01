@@ -30,6 +30,7 @@ class SystemZABIInfo : public ABIInfo {
   bool KernelNoExt;
   bool KernelR7Arg;
   bool KernelEvenPairs;
+  bool KernelStruct32;
 
 public:
   SystemZABIInfo(CodeGenTypes &CGT, bool HV, bool SF)
@@ -41,6 +42,7 @@ public:
     KernelNoExt = TI.hasFeature("experimental-kernel-abi-no-ext");
     KernelR7Arg = TI.hasFeature("experimental-kernel-abi-r7-arg");
     KernelEvenPairs = TI.hasFeature("experimental-kernel-abi-even-pairs");
+    KernelStruct32 = TI.hasFeature("experimental-kernel-abi-struct-32");
   }
 
   bool isPromotableIntegerTypeForABI(QualType Ty) const;
@@ -217,7 +219,9 @@ bool SystemZABIInfo::isKernelInt128(QualType Ty) const {
                           Ty->isSpecificBuiltinType(BuiltinType::UInt128));
 }
 
-uint64_t SystemZABIInfo::getKernelMaxCompositeSize() const { return 128; }
+uint64_t SystemZABIInfo::getKernelMaxCompositeSize() const {
+  return KernelStruct32 ? 256 : 128;
+}
 
 // Classify a composite of at most getKernelMaxCompositeSize() bits for the
 // kernel ABI: it is split into doublewords, the last one right-justified.

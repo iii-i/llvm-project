@@ -87,6 +87,11 @@ def FeatureKernelABIEvenPairs : KernelABITweak<
   "Start GPR pairs on an even register"
 >;
 
+def FeatureKernelABIStruct32 : KernelABITweak<
+  "struct-32", "Struct32",
+  "Pass and return composites of up to 32 bytes in GPRs"
+>;
+
 //===----------------------------------------------------------------------===//
 //
 // New features added in the Ninth Edition of the z/Architecture

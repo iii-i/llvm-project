@@ -84,6 +84,25 @@
 // RUN:   | FileCheck --check-prefix=EVEN-PAIRS-ONLY %s
 // EVEN-PAIRS-ONLY: error: invalid argument 'even-pairs' only allowed with 'struct-arg' or 'int128'
 
+// RUN: %clang --target=s390x-linux-gnu -msoft-float \
+// RUN:   -mexperimental-kernel-abi=struct-32,struct-arg,struct-ret -### -c %s 2>&1 \
+// RUN:   | FileCheck --check-prefix=STRUCT-32 %s
+// STRUCT-32-NOT: error:
+// STRUCT-32: "-target-feature" "+experimental-kernel-abi-struct-ret" "-target-feature" "+experimental-kernel-abi-struct-arg" "-target-feature" "+experimental-kernel-abi-struct-32"
+// STRUCT-32-NOT: "+experimental-kernel-abi
+
+// RUN: not %clang --target=s390x-linux-gnu -msoft-float \
+// RUN:   -mexperimental-kernel-abi=struct-32 -### -c %s 2>&1 \
+// RUN:   | FileCheck --check-prefix=STRUCT-32-ONLY %s
+// STRUCT-32-ONLY: error: invalid argument 'struct-32' only allowed with 'struct-ret'
+// STRUCT-32-ONLY: error: invalid argument 'struct-32' only allowed with 'struct-arg'
+
+// RUN: %clang --target=s390x-linux-gnu -msoft-float \
+// RUN:   -mexperimental-kernel-abi=struct-32,even-pairs,r7-arg,r6-clobbered,no-ext,int128,struct-arg,struct-ret \
+// RUN:   -### -c %s 2>&1 | FileCheck --check-prefix=ALL %s
+// ALL-NOT: error:
+// ALL: "-target-feature" "+experimental-kernel-abi-struct-ret" "-target-feature" "+experimental-kernel-abi-struct-arg" "-target-feature" "+experimental-kernel-abi-int128" "-target-feature" "+experimental-kernel-abi-no-ext" "-target-feature" "+experimental-kernel-abi-r6-clobbered" "-target-feature" "+experimental-kernel-abi-r7-arg" "-target-feature" "+experimental-kernel-abi-even-pairs" "-target-feature" "+experimental-kernel-abi-struct-32"
+
 // RUN: not %clang --target=s390x-linux-gnu -msoft-float \
 // RUN:   -mexperimental-kernel-abi=struct-ret,foo -### -c %s 2>&1 \
 // RUN:   | FileCheck --check-prefix=UNKNOWN %s
