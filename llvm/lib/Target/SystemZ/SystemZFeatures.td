@@ -62,6 +62,11 @@ def FeatureKernelABIStructArg : KernelABITweak<
   "Pass composites of up to 16 bytes in GPRs"
 >;
 
+def FeatureKernelABIInt128 : KernelABITweak<
+  "int128", "Int128",
+  "Pass and return i128 in a GPR pair"
+>;
+
 //===----------------------------------------------------------------------===//
 //
 // New features added in the Ninth Edition of the z/Architecture

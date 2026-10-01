@@ -96,7 +96,9 @@ def CC_SystemZ_ELF : CallingConv<[
   CCIfSwiftError<CCIfType<[i64], CCAssignToReg<[R9D]>>>,
 
   // Values that the experimental kernel ABI passes in several GPRs.
-  CCIfConsecutiveRegs<CCCustom<"CC_SystemZ_ELF_GPRBlock">>,
+  // A soft-float fp128 keeps being passed by reference.
+  CCIf<"ArgFlags.isInConsecutiveRegs() && !OrigTy->isFP128Ty()",
+       CCCustom<"CC_SystemZ_ELF_GPRBlock">>,
 
   // Force i128 (if the type is legal) and long double values to the stack
   // and pass i64 pointers to them.

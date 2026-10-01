@@ -27,4 +27,18 @@ define void @Pair(i64 %a, { i64, i32 } %b, { i64, i32 } %c) sanitize_memory #0 {
 ; CHECK: store { i64, i32 } [[C]], ptr [[P4]]
 ; CHECK: store i64 16, ptr %va_arg_overflow_size
 
+define void @Int128(i64 %a, i128 %b) sanitize_memory #1 {
+  call void (i64, ...) @vararg(i64 %a, i128 %b, i64 %a, i64 %a, i128 %b)
+  ret void
+}
+
+; CHECK-LABEL: @Int128(
+; CHECK: [[B:%.*]] = load i128, ptr
+; CHECK: [[P0:%.*]] = getelementptr i8, ptr %va_arg_shadow, i64 24
+; CHECK: store i128 [[B]], ptr [[P0]]
+; CHECK: [[P1:%.*]] = getelementptr i8, ptr %va_arg_shadow, i64 160
+; CHECK: store i128 [[B]], ptr [[P1]]
+; CHECK: store i64 16, ptr %va_arg_overflow_size
+
 attributes #0 = { "target-features"="+soft-float,+experimental-kernel-abi-struct-arg" }
+attributes #1 = { "target-features"="+soft-float,+experimental-kernel-abi-int128" }

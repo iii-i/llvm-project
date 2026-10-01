@@ -862,6 +862,10 @@ MVT SystemZTargetLowering::getRegisterTypeForCallingConv(LLVMContext &Context,
   // Pass fp16 vectors in VR(s).
   if (Subtarget.hasVector() && VT.isVectorOf(MVT::f16))
     return MVT::v8f16;
+  // Pass a legal i128 in a GPR pair.
+  if (VT == MVT::i128 && Subtarget.isTargetELF() &&
+      Subtarget.hasExperimentalKernelABIInt128())
+    return MVT::i64;
   return TargetLowering::getRegisterTypeForCallingConv(Context, CC, VT);
 }
 
@@ -870,6 +874,9 @@ unsigned SystemZTargetLowering::getNumRegistersForCallingConv(
   // Pass fp16 vectors in VR(s).
   if (Subtarget.hasVector() && VT.isVectorOf(MVT::f16))
     return divideCeil(VT.getVectorNumElements(), SystemZ::VectorBytes / 2);
+  if (VT == MVT::i128 && Subtarget.isTargetELF() &&
+      Subtarget.hasExperimentalKernelABIInt128())
+    return 2;
   return TargetLowering::getNumRegistersForCallingConv(Context, CC, VT);
 }
 
@@ -1996,6 +2003,17 @@ bool SystemZTargetLowering::splitValueIntoRegisterParts(
     return true;
   }
 
+  if (ValueVT == MVT::i128 && NumParts == 2 && PartVT == MVT::i64 &&
+      isTypeLegal(MVT::i128) && Subtarget.hasExperimentalKernelABIInt128()) {
+    // A legal i128 passed in a GPR pair, high doubleword first.
+    Parts[0] =
+        DAG.getNode(ISD::TRUNCATE, DL, MVT::i64,
+                    DAG.getNode(ISD::SRL, DL, MVT::i128, Val,
+                                DAG.getShiftAmountConstant(64, MVT::i128, DL)));
+    Parts[1] = DAG.getNode(ISD::TRUNCATE, DL, MVT::i64, Val);
+    return true;
+  }
+
   return false;
 }
 
@@ -2006,6 +2024,15 @@ SDValue SystemZTargetLowering::joinRegisterPartsIntoValue(
     // Inline assembly operand.
     SDValue Res = lowerGR128ToI128(DAG, Parts[0]);
     return DAG.getBitcast(ValueVT, Res);
+  }
+
+  if (ValueVT == MVT::i128 && NumParts == 2 && PartVT == MVT::i64 &&
+      isTypeLegal(MVT::i128) && Subtarget.hasExperimentalKernelABIInt128()) {
+    SDValue Hi = DAG.getNode(ISD::ZERO_EXTEND, DL, MVT::i128, Parts[0]);
+    SDValue Lo = DAG.getNode(ISD::ZERO_EXTEND, DL, MVT::i128, Parts[1]);
+    Hi = DAG.getNode(ISD::SHL, DL, MVT::i128, Hi,
+                     DAG.getShiftAmountConstant(64, MVT::i128, DL));
+    return DAG.getNode(ISD::OR, DL, MVT::i128, Lo, Hi);
   }
 
   return SDValue();
@@ -2623,7 +2650,9 @@ bool SystemZTargetLowering::functionArgumentNeedsConsecutiveRegisters(
     const DataLayout &DL) const {
   if (!Subtarget.isTargetELF())
     return false;
-  return Subtarget.hasExperimentalKernelABIStructArg() && Ty->isAggregateType();
+  return (Subtarget.hasExperimentalKernelABIStructArg() &&
+          Ty->isAggregateType()) ||
+         (Subtarget.hasExperimentalKernelABIInt128() && Ty->isIntegerTy(128));
 }
 
 bool SystemZTargetLowering::CanLowerReturn(
@@ -2632,8 +2661,11 @@ bool SystemZTargetLowering::CanLowerReturn(
     const Type *RetTy) const {
   // Special case that we cannot easily detect in RetCC_SystemZ since
   // i128 may not be a legal type.
+  bool Int128InRegs =
+      Subtarget.isTargetELF() && Subtarget.hasExperimentalKernelABIInt128();
   for (auto &Out : Outs)
-    if (Out.ArgVT.isScalarInteger() && Out.ArgVT.getSizeInBits() > 64)
+    if (Out.ArgVT.isScalarInteger() && Out.ArgVT.getSizeInBits() > 64 &&
+        !(Int128InRegs && Out.ArgVT == MVT::i128))
       return false;
 
   SmallVector<CCValAssign, 16> RetLocs;

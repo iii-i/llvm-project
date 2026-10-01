@@ -9075,6 +9075,7 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
   bool IsSoftFloatABI;
   // Experimental kernel ABI tweaks.
   bool KernelStructArg;
+  bool KernelInt128;
   AllocaInst *VAArgTLSCopy = nullptr;
   AllocaInst *VAArgTLSOriginCopy = nullptr;
   Value *VAArgOverflowSize = nullptr;
@@ -9097,6 +9098,7 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
     F.getFnAttribute("target-features").getValueAsString().split(Features, ',');
     KernelStructArg =
         is_contained(Features, "+experimental-kernel-abi-struct-arg");
+    KernelInt128 = is_contained(Features, "+experimental-kernel-abi-int128");
   }
 
   // The number of GPRs that the experimental kernel ABI uses for an argument
@@ -9108,6 +9110,8 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
       if (auto *AT = dyn_cast<ArrayType>(T))
         return AT->getNumElements();
     }
+    if (KernelInt128 && T->isIntegerTy(128))
+      return 2;
     return 0;
   }
 

@@ -26,6 +26,7 @@ class SystemZABIInfo : public ABIInfo {
   // -mexperimental-kernel-abi= tweaks.
   bool KernelStructRet;
   bool KernelStructArg;
+  bool KernelInt128;
 
 public:
   SystemZABIInfo(CodeGenTypes &CGT, bool HV, bool SF)
@@ -33,6 +34,7 @@ public:
     const TargetInfo &TI = CGT.getTarget();
     KernelStructRet = TI.hasFeature("experimental-kernel-abi-struct-ret");
     KernelStructArg = TI.hasFeature("experimental-kernel-abi-struct-arg");
+    KernelInt128 = TI.hasFeature("experimental-kernel-abi-int128");
   }
 
   bool isPromotableIntegerTypeForABI(QualType Ty) const;
@@ -42,6 +44,7 @@ public:
   QualType getSingleElementType(QualType Ty) const;
 
   bool isKernelComposite(QualType Ty) const;
+  bool isKernelInt128(QualType Ty) const;
   uint64_t getKernelMaxCompositeSize() const;
   ABIArgInfo classifyKernelComposite(QualType Ty) const;
   unsigned getNumArgGPRs() const { return 5; }
@@ -193,6 +196,13 @@ bool SystemZABIInfo::isKernelComposite(QualType Ty) const {
          (isAggregateTypeForABI(Ty) && !Ty->isMemberFunctionPointerType());
 }
 
+bool SystemZABIInfo::isKernelInt128(QualType Ty) const {
+  if (const auto *ED = Ty->getAsEnumDecl())
+    Ty = ED->getIntegerType();
+  return KernelInt128 && (Ty->isSpecificBuiltinType(BuiltinType::Int128) ||
+                          Ty->isSpecificBuiltinType(BuiltinType::UInt128));
+}
+
 uint64_t SystemZABIInfo::getKernelMaxCompositeSize() const { return 128; }
 
 // Classify a composite of at most getKernelMaxCompositeSize() bits for the
@@ -318,7 +328,7 @@ RValue SystemZABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
   ABIArgInfo AI = classifyArgumentType(Ty);
   if (AI.isIgnore())
     return Slot.asRValue();
-  if (KernelStructArg && AI.isDirect() &&
+  if ((KernelStructArg || KernelInt128) && AI.isDirect() &&
       TyInfo.Width > CharUnits::fromQuantity(8) &&
       !(AI.getCoerceToType() && AI.getCoerceToType()->isVectorTy()))
     return emitKernelMultiRegVAArg(CGF, VAListAddr, Ty, Slot);
@@ -542,6 +552,8 @@ ABIArgInfo SystemZABIInfo::classifyReturnType(QualType RetTy) const {
   if (KernelStructRet && isKernelComposite(RetTy) &&
       getContext().getTypeSize(RetTy) <= getKernelMaxCompositeSize())
     return classifyKernelComposite(RetTy);
+  if (isKernelInt128(RetTy))
+    return ABIArgInfo::getDirect();
   if (isCompoundType(RetTy) || getContext().getTypeSize(RetTy) > 64)
     return getNaturalAlignIndirect(RetTy, getDataLayout().getAllocaAddrSpace());
   return (isPromotableIntegerTypeForABI(RetTy) ? ABIArgInfo::getExtend(RetTy)
@@ -573,6 +585,8 @@ ABIArgInfo SystemZABIInfo::classifyArgumentType(QualType Ty) const {
   if (KernelStructArg && isKernelComposite(Ty) &&
       Size <= getKernelMaxCompositeSize())
     return classifyKernelComposite(Ty);
+  if (isKernelInt128(Ty))
+    return ABIArgInfo::getDirect();
 
   // Values that are not 1, 2, 4 or 8 bytes in size are passed indirectly.
   if (Size != 8 && Size != 16 && Size != 32 && Size != 64)
