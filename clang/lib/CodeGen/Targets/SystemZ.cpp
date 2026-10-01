@@ -25,12 +25,14 @@ class SystemZABIInfo : public ABIInfo {
   bool IsSoftFloatABI;
   // -mexperimental-kernel-abi= tweaks.
   bool KernelStructRet;
+  bool KernelStructArg;
 
 public:
   SystemZABIInfo(CodeGenTypes &CGT, bool HV, bool SF)
       : ABIInfo(CGT), HasVector(HV), IsSoftFloatABI(SF) {
     const TargetInfo &TI = CGT.getTarget();
     KernelStructRet = TI.hasFeature("experimental-kernel-abi-struct-ret");
+    KernelStructArg = TI.hasFeature("experimental-kernel-abi-struct-arg");
   }
 
   bool isPromotableIntegerTypeForABI(QualType Ty) const;
@@ -42,6 +44,9 @@ public:
   bool isKernelComposite(QualType Ty) const;
   uint64_t getKernelMaxCompositeSize() const;
   ABIArgInfo classifyKernelComposite(QualType Ty) const;
+  unsigned getNumArgGPRs() const { return 5; }
+  RValue emitKernelMultiRegVAArg(CodeGenFunction &CGF, Address VAListAddr,
+                                 QualType Ty, AggValueSlot Slot) const;
 
   ABIArgInfo classifyReturnType(QualType RetTy) const;
   ABIArgInfo classifyArgumentType(QualType ArgTy) const;
@@ -311,6 +316,12 @@ RValue SystemZABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
   llvm::Type *ArgTy = CGF.ConvertTypeForMem(Ty);
   llvm::Type *DirectTy = ArgTy;
   ABIArgInfo AI = classifyArgumentType(Ty);
+  if (AI.isIgnore())
+    return Slot.asRValue();
+  if (KernelStructArg && AI.isDirect() &&
+      TyInfo.Width > CharUnits::fromQuantity(8) &&
+      !(AI.getCoerceToType() && AI.getCoerceToType()->isVectorTy()))
+    return emitKernelMultiRegVAArg(CGF, VAListAddr, Ty, Slot);
   bool IsIndirect = AI.isIndirect();
   bool InFPRs = false;
   bool IsVector = false;
@@ -371,7 +382,7 @@ RValue SystemZABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
     RegSaveIndex = 16; // save offset for f0
     RegPadding = CharUnits(); // floats are passed in the high bits of an FPR
   } else {
-    MaxRegs = 5; // Maximum of 5 GPR arguments
+    MaxRegs = getNumArgGPRs();
     RegCountField = 0; // __gpr
     RegSaveIndex = 2; // save offset for r2
     RegPadding = Padding; // values are passed in the low bits of a GPR
@@ -448,6 +459,81 @@ RValue SystemZABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
   return CGF.EmitLoadOfAnyValue(CGF.MakeAddrLValue(ResAddr, Ty), Slot);
 }
 
+// A value of the kernel ABI that occupies several GPRs is taken either from
+// consecutive slots of the register save area, which hold its register
+// image, or from the overflow area, which holds its memory image.
+RValue SystemZABIInfo::emitKernelMultiRegVAArg(CodeGenFunction &CGF,
+                                               Address VAListAddr, QualType Ty,
+                                               AggValueSlot Slot) const {
+  CharUnits Size = getContext().getTypeSizeInChars(Ty);
+  CharUnits RegSize = CharUnits::fromQuantity(8);
+  uint64_t NumRegs = llvm::divideCeil(Size.getQuantity(), 8);
+  llvm::Type *IndexTy = CGF.Int64Ty;
+  llvm::Type *MemTy = CGF.ConvertTypeForMem(Ty);
+
+  Address RegCountPtr =
+      CGF.Builder.CreateStructGEP(VAListAddr, 0, "reg_count_ptr");
+  llvm::Value *RegCount = CGF.Builder.CreateLoad(RegCountPtr, "reg_count");
+  llvm::Value *InRegs = CGF.Builder.CreateICmpULE(
+      RegCount, llvm::ConstantInt::get(IndexTy, getNumArgGPRs() - NumRegs),
+      "fits_in_regs");
+
+  llvm::BasicBlock *InRegBlock = CGF.createBasicBlock("vaarg.in_reg");
+  llvm::BasicBlock *InMemBlock = CGF.createBasicBlock("vaarg.in_mem");
+  llvm::BasicBlock *ContBlock = CGF.createBasicBlock("vaarg.end");
+  CGF.Builder.CreateCondBr(InRegs, InRegBlock, InMemBlock);
+
+  CGF.EmitBlock(InRegBlock);
+  llvm::Value *RegOffset = CGF.Builder.CreateAdd(
+      CGF.Builder.CreateMul(RegCount, llvm::ConstantInt::get(IndexTy, 8),
+                            "scaled_reg_count"),
+      llvm::ConstantInt::get(IndexTy, 16), "reg_offset");
+  Address RegSaveAreaPtr =
+      CGF.Builder.CreateStructGEP(VAListAddr, 3, "reg_save_area_ptr");
+  llvm::Value *RegSaveArea =
+      CGF.Builder.CreateLoad(RegSaveAreaPtr, "reg_save_area");
+  Address RegAddr(
+      CGF.Builder.CreateGEP(CGF.Int8Ty, RegSaveArea, RegOffset, "raw_reg_addr"),
+      CGF.Int8Ty, RegSize);
+  CharUnits TailSize = Size - RegSize * (NumRegs - 1);
+  if (TailSize != RegSize) {
+    // The last doubleword of the register image is right-justified.
+    Address Tmp =
+        CGF.CreateMemTemp(Ty, "va_arg.tmp").withElementType(CGF.Int8Ty);
+    CGF.Builder.CreateMemCpy(Tmp, RegAddr,
+                             (RegSize * (NumRegs - 1)).getQuantity());
+    CGF.Builder.CreateMemCpy(
+        CGF.Builder.CreateConstInBoundsByteGEP(Tmp, Size - TailSize),
+        CGF.Builder.CreateConstInBoundsByteGEP(RegAddr,
+                                               RegSize * NumRegs - TailSize),
+        TailSize.getQuantity());
+    RegAddr = Tmp;
+  }
+  CGF.Builder.CreateStore(
+      CGF.Builder.CreateAdd(RegCount, llvm::ConstantInt::get(IndexTy, NumRegs),
+                            "reg_count"),
+      RegCountPtr);
+  CGF.EmitBranch(ContBlock);
+
+  CGF.EmitBlock(InMemBlock);
+  Address OverflowArgAreaPtr =
+      CGF.Builder.CreateStructGEP(VAListAddr, 2, "overflow_arg_area_ptr");
+  Address MemAddr =
+      Address(CGF.Builder.CreateLoad(OverflowArgAreaPtr, "overflow_arg_area"),
+              CGF.Int8Ty, RegSize);
+  llvm::Value *NewOverflowArgArea = CGF.Builder.CreateGEP(
+      CGF.Int8Ty, MemAddr.emitRawPointer(CGF),
+      llvm::ConstantInt::get(IndexTy, NumRegs * 8), "overflow_arg_area");
+  CGF.Builder.CreateStore(NewOverflowArgArea, OverflowArgAreaPtr);
+  CGF.EmitBranch(ContBlock);
+
+  CGF.EmitBlock(ContBlock);
+  Address ResAddr = emitMergePHI(CGF, RegAddr, InRegBlock, MemAddr, InMemBlock,
+                                 "va_arg.addr");
+  return CGF.EmitLoadOfAnyValue(
+      CGF.MakeAddrLValue(ResAddr.withElementType(MemTy), Ty), Slot);
+}
+
 ABIArgInfo SystemZABIInfo::classifyReturnType(QualType RetTy) const {
   if (RetTy->isVoidType())
     return ABIArgInfo::getIgnore();
@@ -483,6 +569,10 @@ ABIArgInfo SystemZABIInfo::classifyArgumentType(QualType Ty) const {
   if (isVectorArgumentType(SingleElementTy) &&
       getContext().getTypeSize(SingleElementTy) == Size)
     return ABIArgInfo::getDirect(CGT.ConvertType(SingleElementTy));
+
+  if (KernelStructArg && isKernelComposite(Ty) &&
+      Size <= getKernelMaxCompositeSize())
+    return classifyKernelComposite(Ty);
 
   // Values that are not 1, 2, 4 or 8 bytes in size are passed indirectly.
   if (Size != 8 && Size != 16 && Size != 32 && Size != 64)

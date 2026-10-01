@@ -19,6 +19,20 @@
 // STRUCT-RET: "-target-feature" "+experimental-kernel-abi-struct-ret"
 // STRUCT-RET-NOT: "+experimental-kernel-abi
 
+// RUN: %clang --target=s390x-linux-gnu -msoft-float \
+// RUN:   -mexperimental-kernel-abi=struct-arg -### -c %s 2>&1 \
+// RUN:   | FileCheck --check-prefix=STRUCT-ARG %s
+// STRUCT-ARG-NOT: error:
+// STRUCT-ARG: "-target-feature" "+experimental-kernel-abi-struct-arg"
+// STRUCT-ARG-NOT: "+experimental-kernel-abi
+
+// RUN: %clang --target=s390x-linux-gnu -msoft-float \
+// RUN:   -mexperimental-kernel-abi=struct-arg,struct-ret -### -c %s 2>&1 \
+// RUN:   | FileCheck --check-prefix=STRUCT %s
+// STRUCT-NOT: error:
+// STRUCT: "-target-feature" "+experimental-kernel-abi-struct-ret" "-target-feature" "+experimental-kernel-abi-struct-arg"
+// STRUCT-NOT: "+experimental-kernel-abi
+
 // RUN: not %clang --target=s390x-linux-gnu -msoft-float \
 // RUN:   -mexperimental-kernel-abi=struct-ret,foo -### -c %s 2>&1 \
 // RUN:   | FileCheck --check-prefix=UNKNOWN %s

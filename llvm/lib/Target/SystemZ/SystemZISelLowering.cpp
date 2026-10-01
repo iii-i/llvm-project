@@ -2121,14 +2121,22 @@ SDValue SystemZTargetLowering::LowerFormalArguments(
       // from this parameter.  Unpromoted ints and floats are
       // passed as right-justified 8-byte values.
       SDValue FIN = DAG.getFrameIndex(FI, PtrVT);
-      if (VA.getLocVT() == MVT::i32 || VA.getLocVT() == MVT::f32 ||
-          VA.getLocVT() == MVT::f16) {
-        unsigned SlotOffs = VA.getLocVT() == MVT::f16 ? 6 : 4;
-        FIN = DAG.getNode(ISD::ADD, DL, PtrVT, FIN,
-                          DAG.getIntPtrConstant(SlotOffs, DL));
+      if (Ins[I].Flags.isInConsecutiveRegs()) {
+        // Parts of a kernel ABI block form a memory image.
+        EVT MemVT = Ins[I].ArgVT.bitsLT(LocVT) ? Ins[I].ArgVT : LocVT;
+        ArgValue =
+            DAG.getExtLoad(ISD::EXTLOAD, DL, LocVT, Chain, FIN,
+                           MachinePointerInfo::getFixedStack(MF, FI), MemVT);
+      } else {
+        if (VA.getLocVT() == MVT::i32 || VA.getLocVT() == MVT::f32 ||
+            VA.getLocVT() == MVT::f16) {
+          unsigned SlotOffs = VA.getLocVT() == MVT::f16 ? 6 : 4;
+          FIN = DAG.getNode(ISD::ADD, DL, PtrVT, FIN,
+                            DAG.getIntPtrConstant(SlotOffs, DL));
+        }
+        ArgValue = DAG.getLoad(LocVT, DL, Chain, FIN,
+                               MachinePointerInfo::getFixedStack(MF, FI));
       }
-      ArgValue = DAG.getLoad(LocVT, DL, Chain, FIN,
-                             MachinePointerInfo::getFixedStack(MF, FI));
     }
 
     // Convert the value of the argument register into the value that's
@@ -2448,16 +2456,24 @@ SystemZTargetLowering::LowerCall(CallLoweringInfo &CLI,
                                       Regs->getStackPointerRegister(), PtrVT);
       unsigned Offset = Regs->getStackPointerBias() + Regs->getCallFrameSize() +
                         VA.getLocMemOffset();
-      if (VA.getLocVT() == MVT::i32 || VA.getLocVT() == MVT::f32)
-        Offset += 4;
-      else if (VA.getLocVT() == MVT::f16)
-        Offset += 6;
+      // Parts of a kernel ABI block form a memory image.
+      bool IsMemImage = Outs[I].Flags.isInConsecutiveRegs();
+      if (!IsMemImage) {
+        if (VA.getLocVT() == MVT::i32 || VA.getLocVT() == MVT::f32)
+          Offset += 4;
+        else if (VA.getLocVT() == MVT::f16)
+          Offset += 6;
+      }
       SDValue Address = DAG.getNode(ISD::ADD, DL, PtrVT, StackPtr,
                                     DAG.getIntPtrConstant(Offset, DL));
 
       // Emit the store.
-      MemOpChains.push_back(
-          DAG.getStore(Chain, DL, ArgValue, Address, MachinePointerInfo()));
+      if (IsMemImage && Outs[I].ArgVT.bitsLT(VA.getLocVT()))
+        MemOpChains.push_back(DAG.getTruncStore(
+            Chain, DL, ArgValue, Address, MachinePointerInfo(), Outs[I].ArgVT));
+      else
+        MemOpChains.push_back(
+            DAG.getStore(Chain, DL, ArgValue, Address, MachinePointerInfo()));
 
       // Although long doubles or vectors are passed through the stack when
       // they are vararg (non-fixed arguments), if a long double or vector
@@ -2600,6 +2616,14 @@ std::pair<SDValue, SDValue> SystemZTargetLowering::makeExternalCall(
       .setSExtResult(SignExtend)
       .setZExtResult(!SignExtend);
   return LowerCallTo(CLI);
+}
+
+bool SystemZTargetLowering::functionArgumentNeedsConsecutiveRegisters(
+    Type *Ty, CallingConv::ID CallConv, bool isVarArg,
+    const DataLayout &DL) const {
+  if (!Subtarget.isTargetELF())
+    return false;
+  return Subtarget.hasExperimentalKernelABIStructArg() && Ty->isAggregateType();
 }
 
 bool SystemZTargetLowering::CanLowerReturn(
@@ -11556,6 +11580,9 @@ bool SystemZTargetLowering::verifyNarrowIntegerArgs(
   for (unsigned i = 0; i < Outs.size(); ++i) {
     MVT VT = Outs[i].VT;
     ISD::ArgFlagsTy Flags = Outs[i].Flags;
+    // Parts of a kernel ABI composite are not extended.
+    if (Flags.isInConsecutiveRegs())
+      continue;
     if (VT.isInteger()) {
       assert((VT == MVT::i32 || VT.getSizeInBits() >= 64) &&
              "Unexpected integer argument VT.");

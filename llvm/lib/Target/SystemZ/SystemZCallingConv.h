@@ -9,6 +9,7 @@
 #ifndef LLVM_LIB_TARGET_SYSTEMZ_SYSTEMZCALLINGCONV_H
 #define LLVM_LIB_TARGET_SYSTEMZ_SYSTEMZCALLINGCONV_H
 
+#include "MCTargetDesc/SystemZMCTargetDesc.h"
 #include "SystemZSubtarget.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/CallingConvLower.h"
@@ -82,6 +83,45 @@ inline bool CC_SystemZ_I128Indirect(unsigned &ValNo, MVT &ValVT,
 
   PendingMembers.clear();
 
+  return true;
+}
+
+// In the experimental kernel ABI, a value that needs several GPRs is passed
+// in consecutive GPRs if enough of them are left, and on the stack
+// otherwise.  It is never split, and the GPRs that it does not take remain
+// available for later arguments.  Its parts are marked as
+// InConsecutiveRegs.
+inline bool CC_SystemZ_ELF_GPRBlock(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
+                                    CCValAssign::LocInfo &LocInfo,
+                                    ISD::ArgFlagsTy &ArgFlags, CCState &State) {
+  if (LocVT != MVT::i32 && LocVT != MVT::i64)
+    report_fatal_error("Unsupported type in a GPR block");
+
+  SmallVectorImpl<CCValAssign> &PendingMembers = State.getPendingLocs();
+  PendingMembers.push_back(
+      CCValAssign::getPending(ValNo, ValVT, LocVT, LocInfo));
+  if (!ArgFlags.isInConsecutiveRegsLast())
+    return true;
+
+  ArrayRef<MCPhysReg> ArgGPRs = SystemZ::ELFArgGPRs;
+  unsigned NumRegs = PendingMembers.size();
+  unsigned First = State.getFirstUnallocated(ArgGPRs);
+  if (First + NumRegs <= ArgGPRs.size()) {
+    for (auto [I, It] : enumerate(PendingMembers)) {
+      MCRegister Reg = State.AllocateReg(ArgGPRs[First + I]);
+      if (It.getLocVT() == MVT::i32)
+        Reg = SystemZMC::getRegAsGR32(Reg);
+      It.convertToReg(Reg);
+      State.addLoc(It);
+    }
+  } else {
+    unsigned Offset = State.AllocateStack(8 * NumRegs, Align(8));
+    for (auto [I, It] : enumerate(PendingMembers)) {
+      It.convertToMem(Offset + 8 * I);
+      State.addLoc(It);
+    }
+  }
+  PendingMembers.clear();
   return true;
 }
 

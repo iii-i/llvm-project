@@ -95,6 +95,9 @@ def CC_SystemZ_ELF : CallingConv<[
   // A SwiftError is passed in callee-saved R9.
   CCIfSwiftError<CCIfType<[i64], CCAssignToReg<[R9D]>>>,
 
+  // Values that the experimental kernel ABI passes in several GPRs.
+  CCIfConsecutiveRegs<CCCustom<"CC_SystemZ_ELF_GPRBlock">>,
+
   // Force i128 (if the type is legal) and long double values to the stack
   // and pass i64 pointers to them.
   CCIfType<[i128, f128], CCPassIndirect<i64>>,

@@ -57,6 +57,11 @@ def FeatureKernelABIStructRet : KernelABITweak<
   "Return composites of up to 16 bytes in GPRs"
 >;
 
+def FeatureKernelABIStructArg : KernelABITweak<
+  "struct-arg", "StructArg",
+  "Pass composites of up to 16 bytes in GPRs"
+>;
+
 //===----------------------------------------------------------------------===//
 //
 // New features added in the Ninth Edition of the z/Architecture

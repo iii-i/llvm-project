@@ -9073,6 +9073,8 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
   static const unsigned SystemZRegSaveAreaPtrOffset = 24;
 
   bool IsSoftFloatABI;
+  // Experimental kernel ABI tweaks.
+  bool KernelStructArg;
   AllocaInst *VAArgTLSCopy = nullptr;
   AllocaInst *VAArgTLSOriginCopy = nullptr;
   Value *VAArgOverflowSize = nullptr;
@@ -9090,7 +9092,49 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
   VarArgSystemZHelper(Function &F, MemorySanitizer &MS,
                       MemorySanitizerVisitor &MSV)
       : VarArgHelperBase(F, MS, MSV, SystemZVAListTagSize),
-        IsSoftFloatABI(F.getFnAttribute("use-soft-float").getValueAsBool()) {}
+        IsSoftFloatABI(F.getFnAttribute("use-soft-float").getValueAsBool()) {
+    SmallVector<StringRef, 32> Features;
+    F.getFnAttribute("target-features").getValueAsString().split(Features, ',');
+    KernelStructArg =
+        is_contained(Features, "+experimental-kernel-abi-struct-arg");
+  }
+
+  // The number of GPRs that the experimental kernel ABI uses for an argument
+  // of type T that is passed in a GPR block, or 0.
+  unsigned getGPRBlockSize(Type *T) {
+    if (KernelStructArg) {
+      if (auto *ST = dyn_cast<StructType>(T))
+        return ST->getNumElements();
+      if (auto *AT = dyn_cast<ArrayType>(T))
+        return AT->getNumElements();
+    }
+    return 0;
+  }
+
+  // Store the shadow and the origin of the vararg A, which is passed in a GPR
+  // block: in registers as the register image (each element right-justified
+  // in its doubleword), or on the stack as the memory image.
+  void storeGPRBlockShadow(IRBuilder<> &IRB, Value *A, unsigned Offset,
+                           bool InRegs) {
+    const DataLayout &DL = F.getDataLayout();
+    Value *Shadow = MSV.getShadow(A);
+    Value *Origin = MS.TrackOrigins ? MSV.getOrigin(A) : nullptr;
+    auto Store = [&](Value *S, unsigned Off) {
+      IRB.CreateStore(S, getShadowPtrForVAArgument(IRB, Off));
+      if (Origin)
+        MSV.paintOrigin(IRB, Origin, getOriginPtrForVAArgument(IRB, Off),
+                        DL.getTypeStoreSize(S->getType()), kMinOriginAlignment);
+    };
+    if (!InRegs || !Shadow->getType()->isAggregateType()) {
+      Store(Shadow, Offset);
+      return;
+    }
+    unsigned NumElts = getGPRBlockSize(A->getType());
+    for (unsigned I = 0; I < NumElts; ++I) {
+      Value *S = IRB.CreateExtractValue(Shadow, I);
+      Store(S, Offset + 8 * I + 8 - DL.getTypeStoreSize(S->getType()));
+    }
+  }
 
   ArgKind classifyArgument(Type *T) {
     // T is a SystemZABIInfo::classifyArgumentType() output, and there are
@@ -9140,6 +9184,22 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
       // SystemZABIInfo does not produce ByVal parameters.
       assert(!CB.isByValArgument(ArgNo));
       Type *T = A->getType();
+      if (unsigned NumRegs = getGPRBlockSize(T)) {
+        unsigned BlockSize = 8 * NumRegs;
+        if (GpOffset + BlockSize <= SystemZGpEndOffset) {
+          if (!IsFixed)
+            storeGPRBlockShadow(IRB, A, GpOffset, /*InRegs=*/true);
+          GpOffset += BlockSize;
+        } else if (!IsFixed) {
+          if (OverflowOffset + BlockSize <= kParamTLSSize) {
+            storeGPRBlockShadow(IRB, A, OverflowOffset, /*InRegs=*/false);
+            OverflowOffset += BlockSize;
+          } else {
+            OverflowOffset = kParamTLSSize;
+          }
+        }
+        continue;
+      }
       ArgKind AK = classifyArgument(T);
       if (AK == ArgKind::Indirect) {
         T = MS.PtrTy;
