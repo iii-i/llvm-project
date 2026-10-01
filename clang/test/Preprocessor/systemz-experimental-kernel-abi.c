@@ -9,9 +9,9 @@
 
 // RUN: %clang --target=s390x-linux-gnu -msoft-float \
 // RUN:   -mexperimental-kernel-abi=struct-arg,struct-ret,int128,no-ext \
-// RUN:   -mexperimental-kernel-abi=struct-arg,struct-ret,int128,no-ext,r6-clobbered \
+// RUN:   -mexperimental-kernel-abi=struct-arg,struct-ret,int128,no-ext,r6-clobbered,r7-arg \
 // RUN:   -E -dM %s -o - | FileCheck \
-// RUN:   --check-prefixes=STRUCT-RET,STRUCT-ARG,INT128,NO-EXT,R6-CLOBBERED %s
+// RUN:   --check-prefixes=STRUCT-RET,STRUCT-ARG,INT128,NO-EXT,R6-CLOBBERED,R7-ARG %s
 
 // NONE-NOT: __S390_EXPERIMENTAL_KERNEL_ABI
 
@@ -20,3 +20,4 @@
 // INT128-DAG: #define __S390_EXPERIMENTAL_KERNEL_ABI_INT128__ 1
 // NO-EXT-DAG: #define __S390_EXPERIMENTAL_KERNEL_ABI_NO_EXT__ 1
 // R6-CLOBBERED-DAG: #define __S390_EXPERIMENTAL_KERNEL_ABI_R6_CLOBBERED__ 1
+// R7-ARG-DAG: #define __S390_EXPERIMENTAL_KERNEL_ABI_R7_ARG__ 1

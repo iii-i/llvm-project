@@ -112,6 +112,12 @@ def CC_SystemZ_ELF : CallingConv<[
   // so we have to use a custom handler.
   CCIfType<[i64], CCCustom<"CC_SystemZ_I128Indirect">>,
 
+  // The experimental kernel ABI tweak r7-arg adds R7.
+  CCIfSubtarget<"hasExperimentalKernelABIR7Arg()",
+    CCIfType<[i32], CCAssignToReg<[R2L, R3L, R4L, R5L, R6L, R7L]>>>,
+  CCIfSubtarget<"hasExperimentalKernelABIR7Arg()",
+    CCIfType<[i64], CCAssignToReg<[R2D, R3D, R4D, R5D, R6D, R7D]>>>,
+
   // The first 5 integer arguments are passed in R2-R6.  Note that R6
   // is call-saved.
   CCIfType<[i32], CCAssignToReg<[R2L, R3L, R4L, R5L, R6L]>>,
@@ -153,6 +159,8 @@ def CSR_SystemZ_ELF : CalleeSavedRegs<(add (sequence "R%dD", 6, 15),
 
 // The experimental kernel ABI tweak r6-clobbered.
 def CSR_SystemZ_ELF_R6Clobbered : CalleeSavedRegs<(sub CSR_SystemZ_ELF, R6D)>;
+// The experimental kernel ABI tweak r7-arg.
+def CSR_SystemZ_ELF_R7Arg : CalleeSavedRegs<(sub CSR_SystemZ_ELF, R6D, R7D)>;
 
 // R9 is used to return SwiftError; remove it from CSR.
 def CSR_SystemZ_SwiftError : CalleeSavedRegs<(sub CSR_SystemZ_ELF, R9D)>;

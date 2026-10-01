@@ -70,6 +70,7 @@ static const KernelABITweak KernelABITweaks[] = {
     {"int128", ""},
     {"no-ext", ""},
     {"r6-clobbered", ""},
+    {"r7-arg", "r6-clobbered"},
 };
 
 static void

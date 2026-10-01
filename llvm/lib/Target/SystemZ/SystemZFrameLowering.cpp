@@ -231,8 +231,10 @@ bool SystemZELFFrameLowering::assignCalleeSavedSpillSlots(
     // already be included, but we also need to handle the call-clobbered
     // argument registers.
     Register FirstGPR = ZFI->getVarArgsFirstGPR();
-    if (FirstGPR < SystemZ::ELFNumArgGPRs) {
-      unsigned Reg = SystemZ::ELFArgGPRs[FirstGPR];
+    ArrayRef<MCPhysReg> ArgGPRs =
+        SystemZ::getELFArgGPRs(MF.getSubtarget<SystemZSubtarget>());
+    if (FirstGPR < ArgGPRs.size()) {
+      unsigned Reg = ArgGPRs[FirstGPR];
       int Offset = getRegSpillOffset(MF, Reg);
       if (StartSPOffset > Offset) {
         LowGPR = Reg; StartSPOffset = Offset;
@@ -277,9 +279,11 @@ void SystemZELFFrameLowering::determineCalleeSaves(MachineFunction &MF,
   // the saving of incoming GPR varargs to spillCalleeSavedRegisters().
   // Record these pending uses, which typically include the call-saved
   // argument register R6D.
-  if (IsVarArg && MFI->getVarArgsFirstGPR() < SystemZ::ELFNumArgGPRs) {
-    for (unsigned I = MFI->getVarArgsFirstGPR(); I < SystemZ::ELFNumArgGPRs; ++I)
-      SavedRegs.set(SystemZ::ELFArgGPRs[I]);
+  ArrayRef<MCPhysReg> ArgGPRs =
+      SystemZ::getELFArgGPRs(MF.getSubtarget<SystemZSubtarget>());
+  if (IsVarArg && MFI->getVarArgsFirstGPR() < ArgGPRs.size()) {
+    for (unsigned I = MFI->getVarArgsFirstGPR(); I < ArgGPRs.size(); ++I)
+      SavedRegs.set(ArgGPRs[I]);
     // They are stored by the STMG of the call-saved GPRs, so make sure that
     // there is one.
     SavedRegs.set(SystemZ::R15D);
@@ -388,8 +392,10 @@ bool SystemZELFFrameLowering::spillCalleeSavedRegisters(
 
     // ...likewise GPR varargs.
     if (IsVarArg)
-      for (unsigned I = ZFI->getVarArgsFirstGPR(); I < SystemZ::ELFNumArgGPRs; ++I)
-        addSavedGPR(MBB, MIB, SystemZ::ELFArgGPRs[I], true);
+      for (MCPhysReg Reg :
+           SystemZ::getELFArgGPRs(MF.getSubtarget<SystemZSubtarget>())
+               .drop_front(ZFI->getVarArgsFirstGPR()))
+        addSavedGPR(MBB, MIB, Reg, true);
   }
 
   // Save FPRs/VRs in the normal TargetInstrInfo way.

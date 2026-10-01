@@ -10,9 +10,14 @@
 
 using namespace llvm;
 
-const MCPhysReg SystemZ::ELFArgGPRs[SystemZ::ELFNumArgGPRs] = {
-  SystemZ::R2D, SystemZ::R3D, SystemZ::R4D, SystemZ::R5D, SystemZ::R6D
-};
+const MCPhysReg SystemZ::ELFArgGPRs[SystemZ::ELFMaxNumArgGPRs] = {
+    SystemZ::R2D, SystemZ::R3D, SystemZ::R4D,
+    SystemZ::R5D, SystemZ::R6D, SystemZ::R7D};
+
+ArrayRef<MCPhysReg> SystemZ::getELFArgGPRs(const SystemZSubtarget &Subtarget) {
+  return ArrayRef(ELFArgGPRs)
+      .take_front(Subtarget.hasExperimentalKernelABIR7Arg() ? 6 : 5);
+}
 
 const MCPhysReg SystemZ::ELFArgFPRs[SystemZ::ELFNumArgFPRs] = {
   SystemZ::F0D, SystemZ::F2D, SystemZ::F4D, SystemZ::F6D

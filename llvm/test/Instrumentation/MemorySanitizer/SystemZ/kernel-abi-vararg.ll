@@ -40,5 +40,17 @@ define void @Int128(i64 %a, i128 %b) sanitize_memory #1 {
 ; CHECK: store i128 [[B]], ptr [[P1]]
 ; CHECK: store i64 16, ptr %va_arg_overflow_size
 
+; With r7-arg, %r7 is the sixth argument register.
+define void @R7Arg(i64 %a) sanitize_memory #2 {
+  call void (i64, ...) @vararg(i64 %a, i64 %a, i64 %a, i64 %a, i64 %a, i64 %a, i64 %a)
+  ret void
+}
+
+; CHECK-LABEL: @R7Arg(
+; CHECK: add i64 {{.*}}, 56
+; CHECK: add i64 {{.*}}, 160
+; CHECK: store i64 8, ptr %va_arg_overflow_size
+
 attributes #0 = { "target-features"="+soft-float,+experimental-kernel-abi-struct-arg" }
 attributes #1 = { "target-features"="+soft-float,+experimental-kernel-abi-int128" }
+attributes #2 = { "target-features"="+soft-float,+experimental-kernel-abi-r6-clobbered,+experimental-kernel-abi-r7-arg" }

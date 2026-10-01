@@ -9063,6 +9063,8 @@ struct VarArgPowerPC32Helper : public VarArgHelperBase {
 struct VarArgSystemZHelper : public VarArgHelperBase {
   static const unsigned SystemZGpOffset = 16;
   static const unsigned SystemZGpEndOffset = 56;
+  // With the experimental kernel ABI tweak r7-arg.
+  static const unsigned SystemZR7ArgGpEndOffset = 64;
   static const unsigned SystemZFpOffset = 128;
   static const unsigned SystemZFpEndOffset = 160;
   static const unsigned SystemZMaxVrArgs = 8;
@@ -9076,6 +9078,7 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
   // Experimental kernel ABI tweaks.
   bool KernelStructArg;
   bool KernelInt128;
+  unsigned GpEndOffset;
   AllocaInst *VAArgTLSCopy = nullptr;
   AllocaInst *VAArgTLSOriginCopy = nullptr;
   Value *VAArgOverflowSize = nullptr;
@@ -9099,6 +9102,9 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
     KernelStructArg =
         is_contained(Features, "+experimental-kernel-abi-struct-arg");
     KernelInt128 = is_contained(Features, "+experimental-kernel-abi-int128");
+    GpEndOffset = is_contained(Features, "+experimental-kernel-abi-r7-arg")
+                      ? SystemZR7ArgGpEndOffset
+                      : SystemZGpEndOffset;
   }
 
   // The number of GPRs that the experimental kernel ABI uses for an argument
@@ -9190,7 +9196,7 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
       Type *T = A->getType();
       if (unsigned NumRegs = getGPRBlockSize(T)) {
         unsigned BlockSize = 8 * NumRegs;
-        if (GpOffset + BlockSize <= SystemZGpEndOffset) {
+        if (GpOffset + BlockSize <= GpEndOffset) {
           if (!IsFixed)
             storeGPRBlockShadow(IRB, A, GpOffset, /*InRegs=*/true);
           GpOffset += BlockSize;
@@ -9209,7 +9215,7 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
         T = MS.PtrTy;
         AK = ArgKind::GeneralPurpose;
       }
-      if (AK == ArgKind::GeneralPurpose && GpOffset >= SystemZGpEndOffset)
+      if (AK == ArgKind::GeneralPurpose && GpOffset >= GpEndOffset)
         AK = ArgKind::Memory;
       if (AK == ArgKind::FloatingPoint && FpOffset >= SystemZFpEndOffset)
         AK = ArgKind::Memory;
@@ -9329,7 +9335,7 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
     // TODO(iii): support packed-stack && !use-soft-float
     // For use-soft-float functions, it is enough to copy just the GPRs.
     unsigned RegSaveAreaSize =
-        IsSoftFloatABI ? SystemZGpEndOffset : SystemZRegSaveAreaSize;
+        IsSoftFloatABI ? GpEndOffset : SystemZRegSaveAreaSize;
     IRB.CreateMemCpy(RegSaveAreaShadowPtr, Alignment, VAArgTLSCopy, Alignment,
                      RegSaveAreaSize);
     if (MS.TrackOrigins)

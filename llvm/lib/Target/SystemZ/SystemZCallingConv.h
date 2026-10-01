@@ -17,8 +17,10 @@
 
 namespace llvm {
 namespace SystemZ {
-  const unsigned ELFNumArgGPRs = 5;
-  extern const MCPhysReg ELFArgGPRs[ELFNumArgGPRs];
+  // The experimental kernel ABI tweak r7-arg adds R7D.
+  const unsigned ELFMaxNumArgGPRs = 6;
+  extern const MCPhysReg ELFArgGPRs[ELFMaxNumArgGPRs];
+  ArrayRef<MCPhysReg> getELFArgGPRs(const SystemZSubtarget &Subtarget);
 
   const unsigned ELFNumArgFPRs = 4;
   extern const MCPhysReg ELFArgFPRs[ELFNumArgFPRs];
@@ -62,7 +64,7 @@ inline bool CC_SystemZ_I128Indirect(unsigned &ValNo, MVT &ValVT,
   const SystemZSubtarget &Subtarget =
       State.getMachineFunction().getSubtarget<SystemZSubtarget>();
   if (Subtarget.isTargetELF())
-    Reg = State.AllocateReg(SystemZ::ELFArgGPRs);
+    Reg = State.AllocateReg(SystemZ::getELFArgGPRs(Subtarget));
   else if (Subtarget.isTargetXPLINK64())
     Reg = State.AllocateReg(SystemZ::XPLINK64ArgGPRs);
   else
@@ -103,7 +105,8 @@ inline bool CC_SystemZ_ELF_GPRBlock(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
   if (!ArgFlags.isInConsecutiveRegsLast())
     return true;
 
-  ArrayRef<MCPhysReg> ArgGPRs = SystemZ::ELFArgGPRs;
+  ArrayRef<MCPhysReg> ArgGPRs = SystemZ::getELFArgGPRs(
+      State.getMachineFunction().getSubtarget<SystemZSubtarget>());
   unsigned NumRegs = PendingMembers.size();
   unsigned First = State.getFirstUnallocated(ArgGPRs);
   if (First + NumRegs <= ArgGPRs.size()) {

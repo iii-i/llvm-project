@@ -54,6 +54,18 @@
 // R6-CLOBBERED: "-target-feature" "+experimental-kernel-abi-r6-clobbered"
 // R6-CLOBBERED-NOT: "+experimental-kernel-abi
 
+// RUN: %clang --target=s390x-linux-gnu -msoft-float \
+// RUN:   -mexperimental-kernel-abi=r7-arg,r6-clobbered -### -c %s 2>&1 \
+// RUN:   | FileCheck --check-prefix=R7-ARG %s
+// R7-ARG-NOT: error:
+// R7-ARG: "-target-feature" "+experimental-kernel-abi-r6-clobbered" "-target-feature" "+experimental-kernel-abi-r7-arg"
+// R7-ARG-NOT: "+experimental-kernel-abi
+
+// RUN: not %clang --target=s390x-linux-gnu -msoft-float \
+// RUN:   -mexperimental-kernel-abi=r7-arg -### -c %s 2>&1 \
+// RUN:   | FileCheck --check-prefix=R7-ARG-ONLY %s
+// R7-ARG-ONLY: error: invalid argument 'r7-arg' only allowed with 'r6-clobbered'
+
 // RUN: not %clang --target=s390x-linux-gnu -msoft-float \
 // RUN:   -mexperimental-kernel-abi=struct-ret,foo -### -c %s 2>&1 \
 // RUN:   | FileCheck --check-prefix=UNKNOWN %s

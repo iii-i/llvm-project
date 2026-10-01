@@ -77,6 +77,11 @@ def FeatureKernelABIR6Clobbered : KernelABITweak<
   "Make R6 call-clobbered"
 >;
 
+def FeatureKernelABIR7Arg : KernelABITweak<
+  "r7-arg", "R7Arg",
+  "Pass a sixth argument in R7 and make it call-clobbered"
+>;
+
 //===----------------------------------------------------------------------===//
 //
 // New features added in the Ninth Edition of the z/Architecture

@@ -28,6 +28,7 @@ class SystemZABIInfo : public ABIInfo {
   bool KernelStructArg;
   bool KernelInt128;
   bool KernelNoExt;
+  bool KernelR7Arg;
 
 public:
   SystemZABIInfo(CodeGenTypes &CGT, bool HV, bool SF)
@@ -37,6 +38,7 @@ public:
     KernelStructArg = TI.hasFeature("experimental-kernel-abi-struct-arg");
     KernelInt128 = TI.hasFeature("experimental-kernel-abi-int128");
     KernelNoExt = TI.hasFeature("experimental-kernel-abi-no-ext");
+    KernelR7Arg = TI.hasFeature("experimental-kernel-abi-r7-arg");
   }
 
   bool isPromotableIntegerTypeForABI(QualType Ty) const;
@@ -50,7 +52,7 @@ public:
   ABIArgInfo getExtendForABI(QualType Ty) const;
   uint64_t getKernelMaxCompositeSize() const;
   ABIArgInfo classifyKernelComposite(QualType Ty) const;
-  unsigned getNumArgGPRs() const { return 5; }
+  unsigned getNumArgGPRs() const { return KernelR7Arg ? 6 : 5; }
   RValue emitKernelMultiRegVAArg(CodeGenFunction &CGF, Address VAListAddr,
                                  QualType Ty, AggValueSlot Slot) const;
 
