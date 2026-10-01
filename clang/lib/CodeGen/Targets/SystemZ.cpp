@@ -27,6 +27,7 @@ class SystemZABIInfo : public ABIInfo {
   bool KernelStructRet;
   bool KernelStructArg;
   bool KernelInt128;
+  bool KernelNoExt;
 
 public:
   SystemZABIInfo(CodeGenTypes &CGT, bool HV, bool SF)
@@ -35,6 +36,7 @@ public:
     KernelStructRet = TI.hasFeature("experimental-kernel-abi-struct-ret");
     KernelStructArg = TI.hasFeature("experimental-kernel-abi-struct-arg");
     KernelInt128 = TI.hasFeature("experimental-kernel-abi-int128");
+    KernelNoExt = TI.hasFeature("experimental-kernel-abi-no-ext");
   }
 
   bool isPromotableIntegerTypeForABI(QualType Ty) const;
@@ -45,6 +47,7 @@ public:
 
   bool isKernelComposite(QualType Ty) const;
   bool isKernelInt128(QualType Ty) const;
+  ABIArgInfo getExtendForABI(QualType Ty) const;
   uint64_t getKernelMaxCompositeSize() const;
   ABIArgInfo classifyKernelComposite(QualType Ty) const;
   unsigned getNumArgGPRs() const { return 5; }
@@ -194,6 +197,13 @@ bool SystemZABIInfo::isCompoundType(QualType Ty) const {
 bool SystemZABIInfo::isKernelComposite(QualType Ty) const {
   return Ty->isAnyComplexType() ||
          (isAggregateTypeForABI(Ty) && !Ty->isMemberFunctionPointerType());
+}
+
+ABIArgInfo SystemZABIInfo::getExtendForABI(QualType Ty) const {
+  llvm::Type *T = CGT.ConvertType(Ty);
+  if (KernelNoExt)
+    return ABIArgInfo::getNoExtend(cast<llvm::IntegerType>(T));
+  return ABIArgInfo::getExtend(Ty, T);
 }
 
 bool SystemZABIInfo::isKernelInt128(QualType Ty) const {
@@ -556,7 +566,7 @@ ABIArgInfo SystemZABIInfo::classifyReturnType(QualType RetTy) const {
     return ABIArgInfo::getDirect();
   if (isCompoundType(RetTy) || getContext().getTypeSize(RetTy) > 64)
     return getNaturalAlignIndirect(RetTy, getDataLayout().getAllocaAddrSpace());
-  return (isPromotableIntegerTypeForABI(RetTy) ? ABIArgInfo::getExtend(RetTy)
+  return (isPromotableIntegerTypeForABI(RetTy) ? getExtendForABI(RetTy)
                                                : ABIArgInfo::getDirect());
 }
 
@@ -571,7 +581,7 @@ ABIArgInfo SystemZABIInfo::classifyArgumentType(QualType Ty) const {
 
   // Integers and enums are extended to full register width.
   if (isPromotableIntegerTypeForABI(Ty))
-    return ABIArgInfo::getExtend(Ty, CGT.ConvertType(Ty));
+    return getExtendForABI(Ty);
 
   // Handle vector types and vector-like structure types.  Note that
   // as opposed to float-like structure types, we do not allow any

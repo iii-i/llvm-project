@@ -40,6 +40,13 @@
 // INT128: "-target-feature" "+experimental-kernel-abi-int128"
 // INT128-NOT: "+experimental-kernel-abi
 
+// RUN: %clang --target=s390x-linux-gnu -msoft-float \
+// RUN:   -mexperimental-kernel-abi=no-ext -### -c %s 2>&1 \
+// RUN:   | FileCheck --check-prefix=NO-EXT %s
+// NO-EXT-NOT: error:
+// NO-EXT: "-target-feature" "+experimental-kernel-abi-no-ext"
+// NO-EXT-NOT: "+experimental-kernel-abi
+
 // RUN: not %clang --target=s390x-linux-gnu -msoft-float \
 // RUN:   -mexperimental-kernel-abi=struct-ret,foo -### -c %s 2>&1 \
 // RUN:   | FileCheck --check-prefix=UNKNOWN %s

@@ -68,6 +68,7 @@ static const KernelABITweak KernelABITweaks[] = {
     {"struct-ret", ""},
     {"struct-arg", ""},
     {"int128", ""},
+    {"no-ext", ""},
 };
 
 static void

@@ -2003,6 +2003,13 @@ bool SystemZTargetLowering::splitValueIntoRegisterParts(
     return true;
   }
 
+  if (ValueVT == MVT::i1 && CC && NumParts == 1 && PartVT == MVT::i32 &&
+      Subtarget.hasExperimentalKernelABINoExt()) {
+    // An unextended _Bool is 0 or 1 in the low byte.
+    Parts[0] = DAG.getNode(ISD::ZERO_EXTEND, DL, MVT::i32, Val);
+    return true;
+  }
+
   if (ValueVT == MVT::i128 && NumParts == 2 && PartVT == MVT::i64 &&
       isTypeLegal(MVT::i128) && Subtarget.hasExperimentalKernelABIInt128()) {
     // A legal i128 passed in a GPR pair, high doubleword first.
@@ -11600,7 +11607,7 @@ verifyNarrowIntegerArgs_Ret(const SmallVectorImpl<ISD::OutputArg> &Outs,
 // Return false if an error is found.
 bool SystemZTargetLowering::verifyNarrowIntegerArgs(
     const SmallVectorImpl<ISD::OutputArg> &Outs) const {
-  if (!Subtarget.isTargetELF())
+  if (!Subtarget.isTargetELF() || Subtarget.hasExperimentalKernelABINoExt())
     return true;
 
   if (EnableIntArgExtCheck.getNumOccurrences()) {

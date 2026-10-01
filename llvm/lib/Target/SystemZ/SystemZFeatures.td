@@ -67,6 +67,11 @@ def FeatureKernelABIInt128 : KernelABITweak<
   "Pass and return i128 in a GPR pair"
 >;
 
+def FeatureKernelABINoExt : KernelABITweak<
+  "no-ext", "NoExt",
+  "Do not extend narrow integer arguments and return values"
+>;
+
 //===----------------------------------------------------------------------===//
 //
 // New features added in the Ninth Edition of the z/Architecture

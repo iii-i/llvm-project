@@ -8,8 +8,13 @@
 // This describes the calling conventions for the SystemZ ABI.
 //===----------------------------------------------------------------------===//
 
+// The experimental kernel ABI tweak no-ext ignores extension attributes.
 class CCIfExtend<CCAction A>
-  : CCIf<"ArgFlags.isSExt() || ArgFlags.isZExt()", A>;
+  : CCIf<!strconcat("(ArgFlags.isSExt() || ArgFlags.isZExt()) && ",
+                    "!State.getMachineFunction().",
+                    "getSubtarget<SystemZSubtarget>().",
+                    "hasExperimentalKernelABINoExt()"),
+         A>;
 
 class CCIfSubtarget<string F, CCAction A>
   : CCIf<!strconcat("State.getMachineFunction()."
