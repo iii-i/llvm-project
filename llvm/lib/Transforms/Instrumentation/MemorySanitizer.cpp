@@ -9078,6 +9078,7 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
   // Experimental kernel ABI tweaks.
   bool KernelStructArg;
   bool KernelInt128;
+  bool KernelEvenPairs;
   unsigned GpEndOffset;
   AllocaInst *VAArgTLSCopy = nullptr;
   AllocaInst *VAArgTLSOriginCopy = nullptr;
@@ -9102,6 +9103,8 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
     KernelStructArg =
         is_contained(Features, "+experimental-kernel-abi-struct-arg");
     KernelInt128 = is_contained(Features, "+experimental-kernel-abi-int128");
+    KernelEvenPairs =
+        is_contained(Features, "+experimental-kernel-abi-even-pairs");
     GpEndOffset = is_contained(Features, "+experimental-kernel-abi-r7-arg")
                       ? SystemZR7ArgGpEndOffset
                       : SystemZGpEndOffset;
@@ -9196,10 +9199,13 @@ struct VarArgSystemZHelper : public VarArgHelperBase {
       Type *T = A->getType();
       if (unsigned NumRegs = getGPRBlockSize(T)) {
         unsigned BlockSize = 8 * NumRegs;
-        if (GpOffset + BlockSize <= GpEndOffset) {
+        // The slot of %r2 is 16-byte aligned.
+        unsigned Offset =
+            KernelEvenPairs && NumRegs == 2 ? alignTo(GpOffset, 16) : GpOffset;
+        if (Offset + BlockSize <= GpEndOffset) {
           if (!IsFixed)
-            storeGPRBlockShadow(IRB, A, GpOffset, /*InRegs=*/true);
-          GpOffset += BlockSize;
+            storeGPRBlockShadow(IRB, A, Offset, /*InRegs=*/true);
+          GpOffset = Offset + BlockSize;
         } else if (!IsFixed) {
           if (OverflowOffset + BlockSize <= kParamTLSSize) {
             storeGPRBlockShadow(IRB, A, OverflowOffset, /*InRegs=*/false);

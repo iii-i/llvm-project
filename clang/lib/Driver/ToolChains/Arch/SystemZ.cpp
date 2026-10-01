@@ -71,6 +71,7 @@ static const KernelABITweak KernelABITweaks[] = {
     {"no-ext", ""},
     {"r6-clobbered", ""},
     {"r7-arg", "r6-clobbered"},
+    {"even-pairs", "struct-arg|int128"},
 };
 
 static void

@@ -82,6 +82,11 @@ def FeatureKernelABIR7Arg : KernelABITweak<
   "Pass a sixth argument in R7 and make it call-clobbered"
 >;
 
+def FeatureKernelABIEvenPairs : KernelABITweak<
+  "even-pairs", "EvenPairs",
+  "Start GPR pairs on an even register"
+>;
+
 //===----------------------------------------------------------------------===//
 //
 // New features added in the Ninth Edition of the z/Architecture

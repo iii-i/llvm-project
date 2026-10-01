@@ -105,11 +105,18 @@ inline bool CC_SystemZ_ELF_GPRBlock(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
   if (!ArgFlags.isInConsecutiveRegsLast())
     return true;
 
-  ArrayRef<MCPhysReg> ArgGPRs = SystemZ::getELFArgGPRs(
-      State.getMachineFunction().getSubtarget<SystemZSubtarget>());
+  const SystemZSubtarget &Subtarget =
+      State.getMachineFunction().getSubtarget<SystemZSubtarget>();
+  ArrayRef<MCPhysReg> ArgGPRs = SystemZ::getELFArgGPRs(Subtarget);
   unsigned NumRegs = PendingMembers.size();
   unsigned First = State.getFirstUnallocated(ArgGPRs);
+  // With even-pairs, a pair starts on an even GPR, and a skipped GPR is not
+  // used by later arguments.
+  if (NumRegs == 2 && Subtarget.hasExperimentalKernelABIEvenPairs())
+    First = alignTo(First, 2);
   if (First + NumRegs <= ArgGPRs.size()) {
+    while (State.getFirstUnallocated(ArgGPRs) < First)
+      State.AllocateReg(ArgGPRs);
     for (auto [I, It] : enumerate(PendingMembers)) {
       MCRegister Reg = State.AllocateReg(ArgGPRs[First + I]);
       if (It.getLocVT() == MVT::i32)

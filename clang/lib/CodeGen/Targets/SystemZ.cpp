@@ -29,6 +29,7 @@ class SystemZABIInfo : public ABIInfo {
   bool KernelInt128;
   bool KernelNoExt;
   bool KernelR7Arg;
+  bool KernelEvenPairs;
 
 public:
   SystemZABIInfo(CodeGenTypes &CGT, bool HV, bool SF)
@@ -39,6 +40,7 @@ public:
     KernelInt128 = TI.hasFeature("experimental-kernel-abi-int128");
     KernelNoExt = TI.hasFeature("experimental-kernel-abi-no-ext");
     KernelR7Arg = TI.hasFeature("experimental-kernel-abi-r7-arg");
+    KernelEvenPairs = TI.hasFeature("experimental-kernel-abi-even-pairs");
   }
 
   bool isPromotableIntegerTypeForABI(QualType Ty) const;
@@ -496,6 +498,11 @@ RValue SystemZABIInfo::emitKernelMultiRegVAArg(CodeGenFunction &CGF,
   Address RegCountPtr =
       CGF.Builder.CreateStructGEP(VAListAddr, 0, "reg_count_ptr");
   llvm::Value *RegCount = CGF.Builder.CreateLoad(RegCountPtr, "reg_count");
+  // A pair starts on an even GPR, if it gets GPRs at all.
+  if (KernelEvenPairs && NumRegs == 2)
+    RegCount = CGF.Builder.CreateAnd(
+        CGF.Builder.CreateAdd(RegCount, llvm::ConstantInt::get(IndexTy, 1)),
+        llvm::ConstantInt::get(IndexTy, ~uint64_t(1)), "even_reg_count");
   llvm::Value *InRegs = CGF.Builder.CreateICmpULE(
       RegCount, llvm::ConstantInt::get(IndexTy, getNumArgGPRs() - NumRegs),
       "fits_in_regs");

@@ -2227,6 +2227,10 @@ SDValue SystemZTargetLowering::LowerFormalArguments(
 
   if (IsVarArg && Subtarget.isTargetELF()) {
     // Save the number of non-varargs registers for later use by va_start, etc.
+    // A GPR skipped by even-pairs counts as used.
+    if (Subtarget.hasExperimentalKernelABIEvenPairs())
+      NumFixedGPRs =
+          CCInfo.getFirstUnallocated(SystemZ::getELFArgGPRs(Subtarget));
     FuncInfo->setVarArgsFirstGPR(NumFixedGPRs);
     FuncInfo->setVarArgsFirstFPR(NumFixedFPRs);
 

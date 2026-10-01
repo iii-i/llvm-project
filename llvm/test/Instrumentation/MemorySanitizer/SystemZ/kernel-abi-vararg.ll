@@ -51,6 +51,22 @@ define void @R7Arg(i64 %a) sanitize_memory #2 {
 ; CHECK: add i64 {{.*}}, 160
 ; CHECK: store i64 8, ptr %va_arg_overflow_size
 
+; With even-pairs, %r3 is skipped.
+define void @EvenPairs(i64 %a, i128 %b) sanitize_memory #3 {
+  call void (i64, ...) @vararg(i64 %a, i128 %b, i64 %a, i128 %b)
+  ret void
+}
+
+; CHECK-LABEL: @EvenPairs(
+; CHECK: [[B:%.*]] = load i128, ptr
+; CHECK: [[P0:%.*]] = getelementptr i8, ptr %va_arg_shadow, i64 32
+; CHECK: store i128 [[B]], ptr [[P0]]
+; CHECK: add i64 {{.*}}, 48
+; CHECK: [[P1:%.*]] = getelementptr i8, ptr %va_arg_shadow, i64 160
+; CHECK: store i128 [[B]], ptr [[P1]]
+; CHECK: store i64 16, ptr %va_arg_overflow_size
+
 attributes #0 = { "target-features"="+soft-float,+experimental-kernel-abi-struct-arg" }
 attributes #1 = { "target-features"="+soft-float,+experimental-kernel-abi-int128" }
 attributes #2 = { "target-features"="+soft-float,+experimental-kernel-abi-r6-clobbered,+experimental-kernel-abi-r7-arg" }
+attributes #3 = { "target-features"="+soft-float,+experimental-kernel-abi-int128,+experimental-kernel-abi-even-pairs" }

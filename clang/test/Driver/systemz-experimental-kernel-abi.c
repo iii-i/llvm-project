@@ -66,6 +66,24 @@
 // RUN:   | FileCheck --check-prefix=R7-ARG-ONLY %s
 // R7-ARG-ONLY: error: invalid argument 'r7-arg' only allowed with 'r6-clobbered'
 
+// RUN: %clang --target=s390x-linux-gnu -msoft-float \
+// RUN:   -mexperimental-kernel-abi=even-pairs,int128 -### -c %s 2>&1 \
+// RUN:   | FileCheck --check-prefix=EVEN-PAIRS-INT128 %s
+// EVEN-PAIRS-INT128-NOT: error:
+// EVEN-PAIRS-INT128: "-target-feature" "+experimental-kernel-abi-int128" "-target-feature" "+experimental-kernel-abi-even-pairs"
+// EVEN-PAIRS-INT128-NOT: "+experimental-kernel-abi
+// RUN: %clang --target=s390x-linux-gnu -msoft-float \
+// RUN:   -mexperimental-kernel-abi=even-pairs,struct-arg -### -c %s 2>&1 \
+// RUN:   | FileCheck --check-prefix=EVEN-PAIRS-STRUCT-ARG %s
+// EVEN-PAIRS-STRUCT-ARG-NOT: error:
+// EVEN-PAIRS-STRUCT-ARG: "-target-feature" "+experimental-kernel-abi-struct-arg" "-target-feature" "+experimental-kernel-abi-even-pairs"
+// EVEN-PAIRS-STRUCT-ARG-NOT: "+experimental-kernel-abi
+
+// RUN: not %clang --target=s390x-linux-gnu -msoft-float \
+// RUN:   -mexperimental-kernel-abi=even-pairs,struct-ret -### -c %s 2>&1 \
+// RUN:   | FileCheck --check-prefix=EVEN-PAIRS-ONLY %s
+// EVEN-PAIRS-ONLY: error: invalid argument 'even-pairs' only allowed with 'struct-arg' or 'int128'
+
 // RUN: not %clang --target=s390x-linux-gnu -msoft-float \
 // RUN:   -mexperimental-kernel-abi=struct-ret,foo -### -c %s 2>&1 \
 // RUN:   | FileCheck --check-prefix=UNKNOWN %s
