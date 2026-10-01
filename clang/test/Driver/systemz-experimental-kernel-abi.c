@@ -47,6 +47,13 @@
 // NO-EXT: "-target-feature" "+experimental-kernel-abi-no-ext"
 // NO-EXT-NOT: "+experimental-kernel-abi
 
+// RUN: %clang --target=s390x-linux-gnu -msoft-float \
+// RUN:   -mexperimental-kernel-abi=r6-clobbered -### -c %s 2>&1 \
+// RUN:   | FileCheck --check-prefix=R6-CLOBBERED %s
+// R6-CLOBBERED-NOT: error:
+// R6-CLOBBERED: "-target-feature" "+experimental-kernel-abi-r6-clobbered"
+// R6-CLOBBERED-NOT: "+experimental-kernel-abi
+
 // RUN: not %clang --target=s390x-linux-gnu -msoft-float \
 // RUN:   -mexperimental-kernel-abi=struct-ret,foo -### -c %s 2>&1 \
 // RUN:   | FileCheck --check-prefix=UNKNOWN %s

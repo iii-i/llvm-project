@@ -219,8 +219,13 @@ bool SystemZELFFrameLowering::assignCalleeSavedSpillSlots(
   }
 
   // Save the range of call-saved registers, for use by the
-  // prologue/epilogue inserters.
-  ZFI->setRestoreGPRRegs(LowGPR, HighGPR, StartSPOffset);
+  // prologue/epilogue inserters.  If %r15 is the only one, it is saved only
+  // to store GPR varargs, and the epilogue restores it by adding the frame
+  // size.
+  if (LowGPR == SystemZ::R15D)
+    ZFI->setRestoreGPRRegs(0, 0, 0);
+  else
+    ZFI->setRestoreGPRRegs(LowGPR, HighGPR, StartSPOffset);
   if (IsVarArg) {
     // Also save the GPR varargs, if any.  R6D is call-saved, so would
     // already be included, but we also need to handle the call-clobbered
@@ -272,9 +277,13 @@ void SystemZELFFrameLowering::determineCalleeSaves(MachineFunction &MF,
   // the saving of incoming GPR varargs to spillCalleeSavedRegisters().
   // Record these pending uses, which typically include the call-saved
   // argument register R6D.
-  if (IsVarArg)
+  if (IsVarArg && MFI->getVarArgsFirstGPR() < SystemZ::ELFNumArgGPRs) {
     for (unsigned I = MFI->getVarArgsFirstGPR(); I < SystemZ::ELFNumArgGPRs; ++I)
       SavedRegs.set(SystemZ::ELFArgGPRs[I]);
+    // They are stored by the STMG of the call-saved GPRs, so make sure that
+    // there is one.
+    SavedRegs.set(SystemZ::R15D);
+  }
 
   // If there are any landing pads, entering them will modify r6/r7.
   if (!MF.getLandingPads().empty()) {
@@ -497,7 +506,9 @@ void SystemZELFFrameLowering::processFunctionBeforeFrameFinalized(
   // this case is not clobbered (and restored) it should never be marked as
   // killed.
   if (MF.front().isLiveIn(SystemZ::R6D) &&
-      ZFI->getRestoreGPRRegs().LowGPR != SystemZ::R6D)
+      ZFI->getRestoreGPRRegs().LowGPR != SystemZ::R6D &&
+      !MF.getSubtarget<SystemZSubtarget>()
+           .hasExperimentalKernelABIR6Clobbered())
     for (auto &MO : MRI->use_nodbg_operands(SystemZ::R6D))
       MO.setIsKill(false);
 }

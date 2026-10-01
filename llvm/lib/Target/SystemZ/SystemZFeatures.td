@@ -72,6 +72,11 @@ def FeatureKernelABINoExt : KernelABITweak<
   "Do not extend narrow integer arguments and return values"
 >;
 
+def FeatureKernelABIR6Clobbered : KernelABITweak<
+  "r6-clobbered", "R6Clobbered",
+  "Make R6 call-clobbered"
+>;
+
 //===----------------------------------------------------------------------===//
 //
 // New features added in the Ninth Edition of the z/Architecture

@@ -205,6 +205,8 @@ SystemZELFRegisters::getCalleeSavedRegs(const MachineFunction *MF) const {
       MF->getFunction().getAttributes().hasAttrSomewhere(
           Attribute::SwiftError))
     return CSR_SystemZ_SwiftError_SaveList;
+  if (Subtarget.hasExperimentalKernelABIR6Clobbered())
+    return CSR_SystemZ_ELF_R6Clobbered_SaveList;
   return CSR_SystemZ_ELF_SaveList;
 }
 
@@ -229,6 +231,8 @@ SystemZELFRegisters::getCallPreservedMask(const MachineFunction &MF,
       MF.getFunction().getAttributes().hasAttrSomewhere(
           Attribute::SwiftError))
     return CSR_SystemZ_SwiftError_RegMask;
+  if (Subtarget.hasExperimentalKernelABIR6Clobbered())
+    return CSR_SystemZ_ELF_R6Clobbered_RegMask;
   return CSR_SystemZ_ELF_RegMask;
 }
 

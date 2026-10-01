@@ -2277,7 +2277,8 @@ SDValue SystemZTargetLowering::LowerFormalArguments(
   return Chain;
 }
 
-static bool canUseSiblingCall(const CCState &ArgCCInfo,
+static bool canUseSiblingCall(const SystemZSubtarget &Subtarget,
+                              const CCState &ArgCCInfo,
                               SmallVectorImpl<CCValAssign> &ArgLocs,
                               SmallVectorImpl<ISD::OutputArg> &Outs) {
   // Punt if there are any indirect or stack arguments, or if the call
@@ -2290,7 +2291,8 @@ static bool canUseSiblingCall(const CCState &ArgCCInfo,
     if (!VA.isRegLoc())
       return false;
     Register Reg = VA.getLocReg();
-    if (Reg == SystemZ::R6H || Reg == SystemZ::R6L || Reg == SystemZ::R6D)
+    if ((Reg == SystemZ::R6H || Reg == SystemZ::R6L || Reg == SystemZ::R6D) &&
+        !Subtarget.hasExperimentalKernelABIR6Clobbered())
       return false;
     if (Outs[I].Flags.isSwiftSelf() || Outs[I].Flags.isSwiftError())
       return false;
@@ -2418,7 +2420,7 @@ SystemZTargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   // We don't support GuaranteedTailCallOpt, only automatically-detected
   // sibling calls.
-  if (IsTailCall && !canUseSiblingCall(ArgCCInfo, ArgLocs, Outs))
+  if (IsTailCall && !canUseSiblingCall(Subtarget, ArgCCInfo, ArgLocs, Outs))
     IsTailCall = false;
 
   // Get a count of how many bytes are to be pushed on the stack.

@@ -151,6 +151,9 @@ def CC_SystemZ_ELF : CallingConv<[
 def CSR_SystemZ_ELF : CalleeSavedRegs<(add (sequence "R%dD", 6, 15),
                                        (sequence "F%dD", 8, 15))>;
 
+// The experimental kernel ABI tweak r6-clobbered.
+def CSR_SystemZ_ELF_R6Clobbered : CalleeSavedRegs<(sub CSR_SystemZ_ELF, R6D)>;
+
 // R9 is used to return SwiftError; remove it from CSR.
 def CSR_SystemZ_SwiftError : CalleeSavedRegs<(sub CSR_SystemZ_ELF, R9D)>;
 
